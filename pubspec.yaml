@@ -31,7 +31,14 @@ dependencies:
   flutter:
     sdk: flutter
   go_router: 
+  sqflite: 
+  path:
+  path_provider:
   cupertino_icons: ^1.0.8
+  file_picker: 
+  provider: 
+  sqflite_common_ffi:
+  syncfusion_flutter_pdfviewer:
 
 dev_dependencies:
   flutter_test:

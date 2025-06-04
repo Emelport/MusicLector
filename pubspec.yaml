@@ -39,6 +39,8 @@ dependencies:
   provider: 
   sqflite_common_ffi:
   syncfusion_flutter_pdfviewer:
+  pdfx:
+
 
 dev_dependencies:
   flutter_test:

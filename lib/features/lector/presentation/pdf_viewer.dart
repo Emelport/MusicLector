@@ -5,8 +5,13 @@ import 'package:pdfx/pdfx.dart';
 class PdfViewer extends StatefulWidget {
   final String filePath;
   final bool multipleFiles;
+  final int indexStart;
+
   const PdfViewer(
-      {super.key, required this.filePath, this.multipleFiles = false});
+      {super.key,
+      required this.filePath,
+      this.multipleFiles = false,
+      this.indexStart = 0});
 
   @override
   State<PdfViewer> createState() => _PdfViewerState();
@@ -57,22 +62,36 @@ class _PdfViewerState extends State<PdfViewer> with WidgetsBindingObserver {
   }
 
   Future<void> loadPdf() async {
+    //imprimir widget.indexStart
+    print('widget.indexStart: ${widget.indexStart}');
     if (widget.multipleFiles) {
-      final paths = widget.filePath.split(',').map((e) => e.trim()).toList();
+      final paths = widget.filePath.split(';|;').map((e) => e.trim()).toList();
       documents =
           await Future.wait(paths.map((path) => PdfDocument.openFile(path)));
 
       totalPages = 0;
       pageMap.clear();
+      int pageIndex = 1;
       for (final doc in documents) {
         for (int i = 1; i <= doc.pagesCount; i++) {
-          pageMap.add(MapEntry(i, doc));
+          pageMap.add(MapEntry(pageIndex, doc));
+          pageIndex++;
         }
         totalPages += doc.pagesCount;
       }
+
+      // Calcular la página inicial basada en el índice del archivo (indexStart)
+      int startFileIndex = widget.indexStart.clamp(0, documents.length - 1);
+      int startPage = 1;
+      for (int i = 0; i < startFileIndex; i++) {
+        startPage += documents[i].pagesCount;
+      }
+      currentPage = startPage;
     } else {
       document = await PdfDocument.openFile(widget.filePath);
       totalPages = document.pagesCount;
+      // Set currentPage based on indexStart, but clamp to valid range
+      currentPage = widget.indexStart.clamp(1, totalPages);
     }
 
     await _renderPages();
@@ -290,8 +309,9 @@ class _PdfViewerState extends State<PdfViewer> with WidgetsBindingObserver {
                               onPressed: () {},
                             ),
                             IconButton(
-                              icon: Icon(Icons.flag, color: Colors.blue[900]),
-                              tooltip: 'Bandera',
+                              icon: Icon(Icons.bookmark_add_outlined,
+                                  color: Colors.blue[900]),
+                              tooltip: 'Añadir Marcador',
                               onPressed: () {},
                             ),
                           ],

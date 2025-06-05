@@ -469,8 +469,9 @@ class _SetListMenuState extends State<SetListMenu> {
                                           context,
                                           MaterialPageRoute(
                                             builder: (context) => PdfViewer(
-                                              filePath: filePaths.join(','),
+                                              filePath: filePaths.join(';|;'),
                                               multipleFiles: true,
+                                              indexStart: index,
                                             ),
                                           ),
                                         );

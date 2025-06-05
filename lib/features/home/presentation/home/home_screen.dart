@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:music_lector/features/home/presentation/Library/pdf_list.dart';
+import 'package:music_lector/features/home/presentation/SetLists/setListMenu.dart';
 import 'package:music_lector/features/home/presentation/home/sidebar.dart';
 import 'package:music_lector/features/home/presentation/home/topbar.dart';
 
@@ -47,7 +48,7 @@ class _HomeScreenState extends State<HomeScreen> {
       case HomeSection.biblioteca:
         return Center(child: PdfList());
       case HomeSection.setLists:
-        return Center(child: Text('Configuración de la app'));
+        return Center(child: SetListMenu());
     }
   }
 

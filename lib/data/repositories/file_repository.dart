@@ -17,7 +17,8 @@ class FileRepositoryImpl {
     await _localDatasource.updateFile(file.toMap(), 'id = ?', [file.id]);
   }
 
-  Future<void> deleteFile(int id) async {
-    await _localDatasource.deleteFile('id = ?', [id]);
+  // Nuevo método flexible para borrar por cualquier campo
+  Future<void> deleteFile(String where, List<dynamic> whereArgs) async {
+    await _localDatasource.deleteFile(where, whereArgs);
   }
 }

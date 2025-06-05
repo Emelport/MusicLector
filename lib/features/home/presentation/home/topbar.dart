@@ -4,7 +4,6 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:music_lector/data/models/file.dart';
 import 'package:music_lector/data/repositories/file_repository.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 
@@ -14,6 +13,18 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
   @override
   Size get preferredSize => const Size.fromHeight(kToolbarHeight);
 
+  // Devuelve el path de la carpeta de almacenamiento junto al .exe
+  Future<String> getStorageFolderPath() async {
+    final exeDir = File(Platform.resolvedExecutable).parent;
+    final storageFolder = Directory(p.join(exeDir.path, 'musicPDF'));
+
+    if (!await storageFolder.exists()) {
+      await storageFolder.create(recursive: true);
+    }
+
+    return storageFolder.path;
+  }
+
   Future<void> _pickAndSaveFile(BuildContext context) async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
@@ -22,13 +33,13 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
       withData: false,
       withReadStream: false,
     );
+
     if (result != null && result.files.single.path != null) {
       final filePath = result.files.single.path!;
       final fileName = result.files.single.name;
 
       final nameController = TextEditingController(text: fileName);
 
-      // Mostrar modal para editar datos del archivo
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (context) {
@@ -58,9 +69,9 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
             ? fileName
             : nameController.text.trim();
 
-        // Copiar el archivo al directorio de la app
-        final appDir = await getApplicationDocumentsDirectory();
-        final newFilePath = p.join(appDir.path, editedName);
+        final folderPath = await getStorageFolderPath();
+        final newFilePath = p.join(folderPath, editedName);
+
         await File(filePath).copy(newFilePath);
 
         final repo = Provider.of<FileRepositoryImpl>(context, listen: false);
@@ -69,22 +80,52 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
         );
 
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Archivo copiado y guardado: $editedName'),
-          ),
+          SnackBar(content: Text('Archivo copiado y guardado: $editedName')),
         );
       }
     }
+  }
+
+  Future<void> _syncFilesWithFolder(BuildContext context) async {
+    final folderPath = await getStorageFolderPath();
+    final folder = Directory(folderPath);
+    final filesInFolder = folder
+        .listSync()
+        .whereType<File>()
+        .where((f) => f.path.toLowerCase().endsWith('.pdf'))
+        .toList();
+
+    final fileRepo = Provider.of<FileRepositoryImpl>(context, listen: false);
+    final dbFiles = await fileRepo.getFiles();
+
+    final dbPaths = dbFiles.map((f) => f.path).toSet();
+    final folderPaths = filesInFolder.map((f) => f.path).toSet();
+
+    final newFiles = filesInFolder.where((f) => !dbPaths.contains(f.path));
+    for (final file in newFiles) {
+      await fileRepo.insertFile(FileModel(
+        name: p.basename(file.path),
+        path: file.path,
+      ));
+    }
+
+    final removedFiles = dbFiles.where((f) => !folderPaths.contains(f.path));
+    for (final file in removedFiles) {
+      if (file.id != null) {
+        await fileRepo.deleteFile('id = ?', [file.id]);
+      }
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Archivos sincronizados')),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return AppBar(
       shape: RoundedRectangleBorder(
-        side: BorderSide(
-          color: Colors.blue[900]!,
-          width: 1,
-        ),
+        side: BorderSide(color: Colors.blue[900]!, width: 1),
         borderRadius: BorderRadius.zero,
       ),
       elevation: 1,
@@ -105,24 +146,15 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
                 hintText: 'Buscar',
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8.0),
-                  borderSide: BorderSide(
-                    color: Colors.blue[900]!,
-                    width: 1,
-                  ),
+                  borderSide: BorderSide(color: Colors.blue[900]!, width: 1),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8.0),
-                  borderSide: BorderSide(
-                    color: Colors.blue[900]!,
-                    width: 1,
-                  ),
+                  borderSide: BorderSide(color: Colors.blue[900]!, width: 1),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8.0),
-                  borderSide: BorderSide(
-                    color: Colors.blue[900]!,
-                    width: 2,
-                  ),
+                  borderSide: BorderSide(color: Colors.blue[900]!, width: 2),
                 ),
                 isDense: true,
               ),
@@ -130,16 +162,34 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
           ),
         ),
         IconButton(
-          icon: Icon(
-            Icons.file_open_outlined,
-            color: Colors.blue[900],
-          ),
+          icon: Icon(Icons.file_open_outlined, color: Colors.blue[900]),
           onPressed: () => _pickAndSaveFile(context),
+        ),
+        IconButton(
+          icon: Icon(Icons.folder_open, color: Colors.blue[900]),
+          tooltip: 'Abrir carpeta de archivos',
+          onPressed: () async {
+            final folderPath = await getStorageFolderPath();
+            if (Platform.isWindows) {
+              await Process.run('explorer', [folderPath]);
+            } else if (Platform.isMacOS) {
+              await Process.run('open', [folderPath]);
+            } else if (Platform.isLinux) {
+              await Process.run('xdg-open', [folderPath]);
+            }
+          },
         ),
         IconButton(
           icon: Icon(Icons.menu_outlined, color: Colors.blue[900]),
           onPressed: () {
             // Acción de importar archivos
+          },
+        ),
+        IconButton(
+          icon: Icon(Icons.sync_outlined, color: Colors.blue[900]),
+          tooltip: 'Recargar archivos',
+          onPressed: () async {
+            await _syncFilesWithFolder(context);
           },
         ),
       ],

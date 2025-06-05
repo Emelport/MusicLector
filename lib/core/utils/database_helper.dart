@@ -26,7 +26,6 @@ class DatabaseHelper {
   }
 
   Future _onCreate(Database db, int version) async {
-    // Example table
     await db.execute('''
       CREATE TABLE files(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -34,7 +33,27 @@ class DatabaseHelper {
         path TEXT
       )
     ''');
+
+    await db.execute('''
+      CREATE TABLE setlists(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE setlist_files(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        setlist_id INTEGER,
+        file_id INTEGER,
+        position INTEGER,
+        FOREIGN KEY(setlist_id) REFERENCES setlists(id),
+        FOREIGN KEY(file_id) REFERENCES files(id)
+      )
+    ''');
   }
+
+  // --- Métodos para Files ---
 
   Future<int> insertFile(Map<String, dynamic> values) async {
     final db = await database;
@@ -55,6 +74,62 @@ class DatabaseHelper {
   Future<int> deleteFile(String where, List<dynamic> whereArgs) async {
     final db = await database;
     return await db.delete('files', where: where, whereArgs: whereArgs);
+  }
+
+  // --- Métodos para SetLists ---
+
+  Future<int> insertSetList(
+      String name, List<Map<String, dynamic>> files) async {
+    final db = await database;
+    final setlistId = await db.insert('setlists', {'name': name});
+
+    for (int i = 0; i < files.length; i++) {
+      await db.insert('setlist_files',
+          {'setlist_id': setlistId, 'file_id': files[i]['id'], 'position': i});
+    }
+
+    return setlistId;
+  }
+
+  Future<List<Map<String, dynamic>>> queryAllSetLists() async {
+    final db = await database;
+    final setlists = await db.query('setlists');
+
+    for (var setlist in setlists) {
+      final setlistId = setlist['id'] as int;
+      final files = await db.rawQuery('''
+        SELECT files.* FROM files
+        INNER JOIN setlist_files ON files.id = setlist_files.file_id
+        WHERE setlist_files.setlist_id = ?
+        ORDER BY setlist_files.position
+      ''', [setlistId]);
+      setlist['files'] = files;
+    }
+
+    return setlists;
+  }
+
+  Future<int> updateSetList(
+      int setlistId, String name, List<Map<String, dynamic>> files) async {
+    final db = await database;
+    await db.update('setlists', {'name': name},
+        where: 'id = ?', whereArgs: [setlistId]);
+    await db.delete('setlist_files',
+        where: 'setlist_id = ?', whereArgs: [setlistId]);
+
+    for (int i = 0; i < files.length; i++) {
+      await db.insert('setlist_files',
+          {'setlist_id': setlistId, 'file_id': files[i]['id'], 'position': i});
+    }
+
+    return setlistId;
+  }
+
+  Future<int> deleteSetList(int setlistId) async {
+    final db = await database;
+    await db.delete('setlist_files',
+        where: 'setlist_id = ?', whereArgs: [setlistId]);
+    return await db.delete('setlists', where: 'id = ?', whereArgs: [setlistId]);
   }
 
   Future close() async {

@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:music_lector/features/config/presentation/config_screen.dart';
 import 'package:music_lector/features/home/presentation/home/home_screen.dart';

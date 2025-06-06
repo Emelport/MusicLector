@@ -2,10 +2,12 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:music_lector/data/models/file.dart';
 import 'package:music_lector/data/repositories/file_repository.dart';
 import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
+import 'package:window_manager/window_manager.dart';
 
 class TopBar extends StatelessWidget implements PreferredSizeWidget {
   const TopBar({Key? key}) : super(key: key);
@@ -13,7 +15,8 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
   @override
   Size get preferredSize => const Size.fromHeight(kToolbarHeight);
 
-  // Devuelve el path de la carpeta de almacenamiento junto al .exe
+  /// Entra en pantalla completa y sale al presionar ESC.
+
   Future<String> getStorageFolderPath() async {
     final exeDir = File(Platform.resolvedExecutable).parent;
     final storageFolder = Directory(p.join(exeDir.path, 'musicPDF'));
@@ -30,14 +33,11 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
       type: FileType.custom,
       allowedExtensions: ['pdf'],
       allowMultiple: false,
-      withData: false,
-      withReadStream: false,
     );
 
     if (result != null && result.files.single.path != null) {
       final filePath = result.files.single.path!;
       final fileName = result.files.single.name;
-
       final nameController = TextEditingController(text: fileName);
 
       final confirmed = await showDialog<bool>(
@@ -47,8 +47,7 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
             title: const Text('Editar datos del archivo'),
             content: TextField(
               controller: nameController,
-              decoration:
-                  const InputDecoration(labelText: 'Nombre del archivo'),
+              decoration: const InputDecoration(labelText: 'Nombre del archivo'),
             ),
             actions: [
               TextButton(
@@ -141,8 +140,7 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
             width: 180,
             child: TextField(
               decoration: InputDecoration(
-                contentPadding:
-                    const EdgeInsets.symmetric(vertical: 0, horizontal: 15),
+                contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 15),
                 hintText: 'Buscar',
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8.0),
@@ -179,11 +177,22 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
             }
           },
         ),
-        IconButton(
+        PopupMenuButton<String>(
           icon: Icon(Icons.menu_outlined, color: Colors.blue[900]),
-          onPressed: () {
-            // Acción de importar archivos
+          onSelected: (value) async {
+            if (value == 'fullscreen') {
+              // Alternar pantalla completa
+            }
+
           },
+          itemBuilder: (context) => const [
+            PopupMenuItem(
+              value: 'fullscreen',
+              child: Text('Pantalla completa'),
+            ),
+           
+          ],
+          
         ),
         IconButton(
           icon: Icon(Icons.sync_outlined, color: Colors.blue[900]),

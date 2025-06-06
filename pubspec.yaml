@@ -40,6 +40,7 @@ dependencies:
   sqflite_common_ffi:
   syncfusion_flutter_pdfviewer:
   pdfx:
+  window_manager:
 
 
 dev_dependencies:

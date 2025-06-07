@@ -41,6 +41,8 @@ dependencies:
   syncfusion_flutter_pdfviewer:
   pdfx:
   window_manager:
+  pdf:
+  printing:
 
 
 dev_dependencies:

@@ -40,8 +40,8 @@ class _PdfViewerState extends State<PdfViewer> with WidgetsBindingObserver {
   bool _isSliding = false;
   int previewPage = 1;
 
-  // Variables para el modo edición
-  List<DrawingPoint> drawingPoints = [];
+  // Variables for editing mode
+  List<DrawingPointRelative> drawingPoints = [];
   double strokeWidth = 3.0;
   Color selectedColor = Colors.red;
   DrawingMode drawingMode = DrawingMode.pen;
@@ -133,8 +133,8 @@ class _PdfViewerState extends State<PdfViewer> with WidgetsBindingObserver {
       setState(() {
         leftImageBytes = leftImage?.bytes;
         rightImageBytes = rightBytes;
-        editedImageBytes = null; // Resetear la imagen editada al cambiar de página
-        drawingPoints.clear(); // Limpiar los dibujos al cambiar de página
+        editedImageBytes = null;
+        drawingPoints.clear();
       });
     }
   }
@@ -184,16 +184,18 @@ class _PdfViewerState extends State<PdfViewer> with WidgetsBindingObserver {
   }
 
   Future<void> _saveDrawing() async {
+    if (leftImageBytes == null) return;
+
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
     final size = Size(1000, 1400);
     
-    // Dibujar la imagen de fondo
+    // Draw background image
     final bgImage = await decodeImageFromList(leftImageBytes!);
     canvas.drawImage(bgImage, Offset.zero, Paint());
     
-    // Dibujar las anotaciones
-    final painter = DrawingPainter(drawingPoints: drawingPoints);
+    // Draw annotations
+    final painter = DrawingPainterRelative(drawingPoints: drawingPoints);
     painter.paint(canvas, size);
     
     final picture = recorder.endRecording();
@@ -201,7 +203,7 @@ class _PdfViewerState extends State<PdfViewer> with WidgetsBindingObserver {
     final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
     final pngBytes = byteData?.buffer.asUint8List();
     
-    if (pngBytes != null) {
+    if (pngBytes != null && mounted) {
       setState(() {
         editedImageBytes = pngBytes;
         isEditingNotifier.value = false;
@@ -224,7 +226,7 @@ class _PdfViewerState extends State<PdfViewer> with WidgetsBindingObserver {
         ),
         child: Column(
           children: [
-            // Selector de herramientas
+            // Tool selector
             Row(
               children: [
                 _buildToolButton(
@@ -235,12 +237,15 @@ class _PdfViewerState extends State<PdfViewer> with WidgetsBindingObserver {
                 _buildToolButton(
                   icon: Icons.highlight,
                   isSelected: drawingMode == DrawingMode.highlighter,
-                  onPressed: () => setState(() => drawingMode = DrawingMode.highlighter),
+                  onPressed: () => setState(() {
+                    drawingMode = DrawingMode.highlighter;
+                    selectedColor = selectedColor.withOpacity(0.4);
+                  }),
                 ),
               ],
             ),
             
-            // Selector de color
+            // Color selector
             SizedBox(
               height: 40,
               child: ListView(
@@ -255,7 +260,11 @@ class _PdfViewerState extends State<PdfViewer> with WidgetsBindingObserver {
                   Colors.purple,
                 ].map((color) {
                   return GestureDetector(
-                    onTap: () => setState(() => selectedColor = color),
+                    onTap: () => setState(() {
+                      selectedColor = drawingMode == DrawingMode.highlighter 
+                          ? color.withOpacity(0.4) 
+                          : color;
+                    }),
                     child: Container(
                       margin: const EdgeInsets.all(4),
                       width: 24,
@@ -274,7 +283,7 @@ class _PdfViewerState extends State<PdfViewer> with WidgetsBindingObserver {
               ),
             ),
             
-            // Grosor del trazo
+            // Stroke width
             Slider(
               value: strokeWidth,
               min: 1,
@@ -282,7 +291,7 @@ class _PdfViewerState extends State<PdfViewer> with WidgetsBindingObserver {
               onChanged: (value) => setState(() => strokeWidth = value),
             ),
             
-            // Botones de acción
+            // Action buttons
             Row(
               children: [
                 IconButton(
@@ -328,6 +337,27 @@ class _PdfViewerState extends State<PdfViewer> with WidgetsBindingObserver {
     );
   }
 
+  Offset _transformToImageCoords(Offset local, double widgetW, double widgetH) {
+    const imgW = 1000.0;
+    const imgH = 1400.0;
+    final widgetAspect = widgetW / widgetH;
+    final imgAspect = imgW / imgH;
+
+    double scale, dx = 0, dy = 0;
+    if (widgetAspect > imgAspect) {
+      // Horizontal letterbox
+      scale = widgetH / imgH;
+      dx = (widgetW - imgW * scale) / 2;
+    } else {
+      // Vertical letterbox
+      scale = widgetW / imgW;
+      dy = (widgetH - imgH * scale) / 2;
+    }
+    final x = ((local.dx - dx) / (imgW * scale)).clamp(0.0, 1.0);
+    final y = ((local.dy - dy) / (imgH * scale)).clamp(0.0, 1.0);
+    return Offset(x, y);
+  }
+
   @override
   Widget build(BuildContext context) {
     final Size screenSize = MediaQuery.of(context).size;
@@ -368,47 +398,65 @@ class _PdfViewerState extends State<PdfViewer> with WidgetsBindingObserver {
             },
             child: Stack(
               children: [
-                // Vista del PDF o imagen editada
+                // PDF view or edited image
                 Center(
                   child: isPortrait
                       ? AspectRatio(
                           aspectRatio: 1000 / 1400,
                           child: isEditing
-                              ? GestureDetector(
-                                  onPanStart: (details) {
-                                    setState(() {
-                                      drawingPoints.add(DrawingPoint(
-                                        point: details.localPosition,
-                                        paint: Paint()
-                                          ..color = selectedColor
-                                          ..strokeWidth = strokeWidth
-                                          ..strokeCap = StrokeCap.round
-                                          ..isAntiAlias = true,
-                                        time: DateTime.now(),
-                                      ));
-                                    });
-                                  },
-                                  onPanUpdate: (details) {
-                                    setState(() {
-                                      drawingPoints.add(DrawingPoint(
-                                        point: details.localPosition,
-                                        paint: Paint()
-                                          ..color = selectedColor
-                                          ..strokeWidth = strokeWidth
-                                          ..strokeCap = StrokeCap.round
-                                          ..isAntiAlias = true,
-                                        time: DateTime.now(),
-                                      ));
-                                    });
-                                  },
-                                  child: Stack(
-                                    children: [
-                                      Image.memory(leftImageBytes!, fit: BoxFit.contain),
-                                      CustomPaint(
-                                        painter: DrawingPainter(drawingPoints: drawingPoints),
+                              ? LayoutBuilder(
+                                  builder: (context, constraints) {
+                                    final imageWidth = constraints.maxWidth;
+                                    final imageHeight = constraints.maxHeight;
+                                    return GestureDetector(
+                                      onPanStart: (details) {
+                                        final local = _transformToImageCoords(
+                                          details.localPosition,
+                                          imageWidth,
+                                          imageHeight,
+                                        );
+                                        setState(() {
+                                          drawingPoints.add(DrawingPointRelative(
+                                            relativePoint: local,
+                                            paint: Paint()
+                                              ..color = selectedColor
+                                              ..strokeWidth = strokeWidth / imageWidth * 1000
+                                              ..strokeCap = StrokeCap.round
+                                              ..isAntiAlias = true,
+                                          ));
+                                        });
+                                      },
+                                      onPanUpdate: (details) {
+                                        final local = _transformToImageCoords(
+                                          details.localPosition,
+                                          imageWidth,
+                                          imageHeight,
+                                        );
+                                        setState(() {
+                                          drawingPoints.add(DrawingPointRelative(
+                                            relativePoint: local,
+                                            paint: Paint()
+                                              ..color = selectedColor
+                                              ..strokeWidth = strokeWidth / imageWidth * 1000
+                                              ..strokeCap = StrokeCap.round
+                                              ..isAntiAlias = true,
+                                          ));
+                                        });
+                                      },
+                                      child: Stack(
+                                        fit: StackFit.expand,
+                                        children: [
+                                          Image.memory(leftImageBytes!, fit: BoxFit.contain),
+                                          CustomPaint(
+                                            painter: DrawingPainterRelative(
+                                              drawingPoints: drawingPoints,
+                                            ),
+                                            size: Size(imageWidth, imageHeight),
+                                          ),
+                                        ],
                                       ),
-                                    ],
-                                  ),
+                                    );
+                                  },
                                 )
                               : Image.memory(
                                   editedImageBytes ?? leftImageBytes!,
@@ -432,7 +480,7 @@ class _PdfViewerState extends State<PdfViewer> with WidgetsBindingObserver {
                         ),
                 ),
 
-                // Barra de herramientas superior
+                // Top toolbar
                 if (!isEditing)
                   ValueListenableBuilder<Alignment>(
                     valueListenable: alignmentNotifier,
@@ -472,12 +520,12 @@ class _PdfViewerState extends State<PdfViewer> with WidgetsBindingObserver {
                               children: [
                                 IconButton(
                                   icon: Icon(Icons.arrow_back, color: Colors.blue[900]),
-                                  tooltip: 'Volver',
+                                  tooltip: 'Back',
                                   onPressed: () => Navigator.of(context).pop(),
                                 ),
                                 IconButton(
                                   icon: Icon(Icons.edit, color: Colors.blue[900]),
-                                  tooltip: 'Editar',
+                                  tooltip: 'Edit',
                                   onPressed: () {
                                     isEditingNotifier.value = true;
                                     drawingPoints.clear();
@@ -485,7 +533,7 @@ class _PdfViewerState extends State<PdfViewer> with WidgetsBindingObserver {
                                 ),
                                 IconButton(
                                   icon: Icon(Icons.bookmark_add_outlined, color: Colors.blue[900]),
-                                  tooltip: 'Añadir Marcador',
+                                  tooltip: 'Add Bookmark',
                                   onPressed: () {},
                                 ),
                               ],
@@ -496,10 +544,10 @@ class _PdfViewerState extends State<PdfViewer> with WidgetsBindingObserver {
                     },
                   ),
 
-                // Controles de edición
+                // Editing controls
                 if (isEditing) _buildEditorControls(),
 
-                // Slider de navegación
+                // Navigation slider
                 ValueListenableBuilder<bool>(
                   valueListenable: showSliderNotifier,
                   builder: (context, showSlider, child) {
@@ -542,7 +590,7 @@ class _PdfViewerState extends State<PdfViewer> with WidgetsBindingObserver {
                                     min: 1,
                                     max: totalPages.toDouble(),
                                     divisions: totalPages > 1 ? totalPages - 1 : 1,
-                                    label: 'Página ${(_sliderValue ?? currentPage).round()}',
+                                    label: 'Page ${(_sliderValue ?? currentPage).round()}',
                                     onChanged: (value) async {
                                       setState(() {
                                         _sliderValue = value;
@@ -578,7 +626,7 @@ class _PdfViewerState extends State<PdfViewer> with WidgetsBindingObserver {
                   },
                 ),
 
-                // Vista previa al deslizar
+                // Preview while sliding
                 if (_isSliding && previewImageBytes != null)
                   Positioned(
                     bottom: 90,
@@ -622,40 +670,50 @@ enum DrawingMode {
   highlighter,
 }
 
-class DrawingPoint {
-  final Offset point;
+class DrawingPointRelative {
+  final Offset relativePoint; // x,y in 0..1 range
   final Paint paint;
   final DateTime time;
 
-  DrawingPoint({
-    required this.point,
+  DrawingPointRelative({
+    required this.relativePoint,
     required this.paint,
-    required this.time,
-  });
+    DateTime? time,
+  }) : time = time ?? DateTime.now();
 }
 
-class DrawingPainter extends CustomPainter {
-  final List<DrawingPoint> drawingPoints;
+class DrawingPainterRelative extends CustomPainter {
+  final List<DrawingPointRelative> drawingPoints;
 
-  DrawingPainter({required this.drawingPoints});
+  DrawingPainterRelative({required this.drawingPoints});
 
   @override
   void paint(Canvas canvas, Size size) {
-    for (int i = 0; i < drawingPoints.length - 1; i++) {
-      if (drawingPoints[i + 1] != null) {
-        canvas.drawLine(
-          drawingPoints[i].point,
-          drawingPoints[i + 1].point,
-          drawingPoints[i].paint,
-        );
-      } else if (drawingPoints[i] != null) {
-        canvas.drawPoints(
-          ui.PointMode.points,
-          [drawingPoints[i].point],
-          drawingPoints[i].paint,
-        );
+    if (drawingPoints.isEmpty) return;
+    
+    Path path = Path();
+    bool isFirst = true;
+    
+    for (int i = 0; i < drawingPoints.length; i++) {
+      final point = drawingPoints[i];
+      final offset = Offset(
+        point.relativePoint.dx * size.width,
+        point.relativePoint.dy * size.height,
+      );
+      
+      if (isFirst) {
+        path.moveTo(offset.dx, offset.dy);
+        isFirst = false;
+      } else {
+        path.lineTo(offset.dx, offset.dy);
       }
+      
+      // Draw the point itself
+      canvas.drawCircle(offset, point.paint.strokeWidth / 2, point.paint);
     }
+    
+    // Draw the connecting lines
+    canvas.drawPath(path, drawingPoints.first.paint);
   }
 
   @override

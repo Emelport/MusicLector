@@ -179,18 +179,67 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
         ),
         PopupMenuButton<String>(
           icon: Icon(Icons.menu_outlined, color: Colors.blue[900]),
-          onSelected: (value) async {
-            if (value == 'fullscreen') {
-              // Alternar pantalla completa
-            }
+        onSelected: (value) async {
+  bool isFullScreen = await windowManager.isFullScreen();
 
-          },
+  switch (value) {
+    case 'fullscreen':
+      if (!isFullScreen) {
+      await windowManager.setFullScreen(true);
+      await windowManager.setResizable(false);
+      // Oculta la barra de título si es posible
+      await windowManager.setTitleBarStyle(TitleBarStyle.hidden);
+      } else {
+      await windowManager.setFullScreen(false);
+      await windowManager.setResizable(true);
+      await windowManager.setTitleBarStyle(TitleBarStyle.normal);
+      await windowManager.setSize(const Size(1200, 800));
+      await windowManager.center();
+      await windowManager.show();
+      await windowManager.focus();
+      (context as Element).markNeedsBuild();
+      }
+      break;
+
+    case 'windows':
+      if (isFullScreen) {
+        await windowManager.setFullScreen(false);
+        await windowManager.setResizable(true);
+        // Set a reasonable default size when exiting fullscreen
+        await windowManager.setSize(const Size(1200, 800));
+        await windowManager.center();
+        await windowManager.show();
+        await windowManager.focus();
+        // Optionally, force a rebuild if your layout does not update automatically
+        // (Uncomment the next line if needed)
+         (context as Element).markNeedsBuild();
+      }
+      break;
+
+    case 'exit':
+      if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+        await windowManager.close();
+      } else {
+        // For other platforms, you might want to use exit(0) or similar
+        exit(0);
+      }
+      break;
+  }
+},
+
           itemBuilder: (context) => const [
             PopupMenuItem(
               value: 'fullscreen',
               child: Text('Pantalla completa'),
             ),
-           
+             PopupMenuItem(
+              value: 'windows',
+              child: Text('Ventana'),
+            ),
+             PopupMenuItem(
+              value: 'exit',
+              child: Text('Cerrar Aplicacion'),
+            ),
           ],
           
         ),

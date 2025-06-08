@@ -5,19 +5,21 @@ import 'package:provider/provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:window_manager/window_manager.dart'; // Importar el router (_router)
 
-void main() {
-  WidgetsFlutterBinding.ensureInitialized(); // Necesario para inicializar plugins
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
 
-  sqfliteFfiInit(); // Inicializa FFI
-  databaseFactory = databaseFactoryFfi; // Asigna el factory global
+  sqfliteFfiInit();
+  databaseFactory = databaseFactoryFfi;
 
-   windowManager.ensureInitialized(); // Espera a que se inicialice
+  await windowManager.ensureInitialized();
 
   // Opcional: configura opciones como ocultar la barra de título, etc.
   WindowOptions windowOptions = const WindowOptions(
-    fullScreen: true, // <-- Aquí se activa pantalla completa
+    fullScreen: true,
+    title: 'Music Lector',
+    center: true,
   );
-  windowManager.waitUntilReadyToShow(windowOptions, () async {
+  await windowManager.waitUntilReadyToShow(windowOptions, () async {
     await windowManager.show();
     await windowManager.focus();
   });
@@ -28,6 +30,11 @@ void main() {
       child: const MyApp(),
     ),
   );
+}
+
+void toggleFullScreen() async {
+  bool isFullScreen = await windowManager.isFullScreen();
+  await windowManager.setFullScreen(!isFullScreen);
 }
 
 class MyApp extends StatelessWidget {

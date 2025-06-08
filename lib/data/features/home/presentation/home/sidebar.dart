@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:music_lector/features/home/presentation/home/home_screen.dart';
+import 'package:music_lector/data/features/home/presentation/home/home_screen.dart';
 
 class Sidebar extends StatelessWidget {
   final Function(HomeSection) onSectionSelected;

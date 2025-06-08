@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:music_lector/features/home/presentation/Library/pdf_list.dart';
-import 'package:music_lector/features/home/presentation/SetLists/setListMenu.dart';
-import 'package:music_lector/features/home/presentation/home/sidebar.dart';
-import 'package:music_lector/features/home/presentation/home/topbar.dart';
+import 'package:music_lector/data/features/home/presentation/Library/pdf_list.dart';
+import 'package:music_lector/data/features/home/presentation/SetLists/setListMenu.dart';
+import 'package:music_lector/data/features/home/presentation/home/sidebar.dart';
+import 'package:music_lector/data/features/home/presentation/home/topbar.dart';
 
 enum HomeSection { inicio, biblioteca, setLists }
 

@@ -3,7 +3,7 @@ import 'package:music_lector/data/datasources/setList_datasource.dart';
 import 'package:music_lector/data/models/setlist.dart';
 import 'package:music_lector/data/models/setlist_file.dart';
 import 'package:music_lector/data/repositories/file_repository.dart';
-import 'package:music_lector/features/lector/presentation/pdf_viewer.dart';
+import 'package:music_lector/data/features/lector/presentation/pdf_viewer.dart';
 
 class SetListMenu extends StatefulWidget {
   const SetListMenu({Key? key}) : super(key: key);

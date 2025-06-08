@@ -1,5 +1,5 @@
 import 'package:music_lector/data/datasources/setlist_datasource.dart';
-import 'package:music_lector/data/models/setList.dart';
+import 'package:music_lector/data/models/setlist.dart';
 
 class SetListRepository {
   final SetListLocalDatasource _localDatasource = SetListLocalDatasource();

@@ -1,27 +1,21 @@
-
 import 'package:flutter/material.dart';
 
-enum DrawingMode {
-  pen,
-  highlighter,
-}
-
-class DrawingPointRelative {
+class DrawingPoint {
   final Offset relativePoint; // x,y in 0..1 range
   final Paint paint;
   final DateTime time;
 
-  DrawingPointRelative({
+  DrawingPoint({
     required this.relativePoint,
     required this.paint,
     DateTime? time,
   }) : time = time ?? DateTime.now();
 }
 
-class DrawingPainterRelative extends CustomPainter {
-  final List<DrawingPointRelative> drawingPoints;
+class DrawingPainter extends CustomPainter {
+  final List<DrawingPoint> drawingPoints;
 
-  DrawingPainterRelative({required this.drawingPoints});
+  DrawingPainter({required this.drawingPoints});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -52,29 +46,6 @@ class DrawingPainterRelative extends CustomPainter {
     canvas.drawPath(path, drawingPoints.first.paint);
   }
 
-   Offset transformToImageCoords(Offset local, double widgetW, double widgetH) {
-    const imgW = 1000.0;
-    const imgH = 1400.0;
-    final widgetAspect = widgetW / widgetH;
-    final imgAspect = imgW / imgH;
-
-    double scale, dx = 0, dy = 0;
-    if (widgetAspect > imgAspect) {
-      // Horizontal letterbox
-      scale = widgetH / imgH;
-      dx = (widgetW - imgW * scale) / 2;
-    } else {
-      // Vertical letterbox
-      scale = widgetW / imgW;
-      dy = (widgetH - imgH * scale) / 2;
-    }
-    final x = ((local.dx - dx) / (imgW * scale)).clamp(0.0, 1.0);
-    final y = ((local.dy - dy) / (imgH * scale)).clamp(0.0, 1.0);
-    return Offset(x, y);
-  }
-
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
-
-  
 }

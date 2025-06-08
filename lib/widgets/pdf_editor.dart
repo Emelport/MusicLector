@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:music_lector/data/enums/drawing_mode.dart';
 import 'package:music_lector/data/models/drawing_point.dart';
 import 'package:music_lector/data/models/pdf_documents.dart';
 

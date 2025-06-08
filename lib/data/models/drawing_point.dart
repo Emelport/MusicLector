@@ -1,7 +1,13 @@
 import 'package:flutter/material.dart';
 
+enum DrawingMode {
+  pen,
+  highlighter,
+  eraser,
+}
+
 class DrawingPoint {
-  final Offset relativePoint; // x,y in 0..1 range
+  final Offset relativePoint; // x,y en rango 0..1
   final Paint paint;
   final DateTime time;
 
@@ -20,30 +26,57 @@ class DrawingPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     if (drawingPoints.isEmpty) return;
-    
-    Path path = Path();
-    bool isFirst = true;
-    
+
+    // Agrupa los puntos por trazos continuos
+    List<List<DrawingPoint>> strokes = [];
+    List<DrawingPoint> currentStroke = [];
+
     for (int i = 0; i < drawingPoints.length; i++) {
-      final point = drawingPoints[i];
-      final offset = Offset(
-        point.relativePoint.dx * size.width,
-        point.relativePoint.dy * size.height,
-      );
-      
-      if (isFirst) {
-        path.moveTo(offset.dx, offset.dy);
-        isFirst = false;
-      } else {
-        path.lineTo(offset.dx, offset.dy);
+      if (i == 0 || drawingPoints[i].time.difference(drawingPoints[i-1].time).inMilliseconds > 100) {
+        if (currentStroke.isNotEmpty) {
+          strokes.add(List.from(currentStroke));
+          currentStroke.clear();
+        }
       }
-      
-      // Draw the point itself
-      canvas.drawCircle(offset, point.paint.strokeWidth / 2, point.paint);
+      currentStroke.add(drawingPoints[i]);
     }
-    
-    // Draw the connecting lines
-    canvas.drawPath(path, drawingPoints.first.paint);
+    if (currentStroke.isNotEmpty) {
+      strokes.add(currentStroke);
+    }
+
+    // Dibuja cada trazo
+    for (final stroke in strokes) {
+      if (stroke.isEmpty) continue;
+
+      final path = Path();
+      final firstPoint = stroke.first;
+      path.moveTo(
+        firstPoint.relativePoint.dx * size.width,
+        firstPoint.relativePoint.dy * size.height,
+      );
+
+      for (int i = 1; i < stroke.length; i++) {
+        final point = stroke[i];
+        path.lineTo(
+          point.relativePoint.dx * size.width,
+          point.relativePoint.dy * size.height,
+        );
+      }
+
+      canvas.drawPath(path, stroke.first.paint);
+
+      // Dibuja un círculo en el último punto para mejor apariencia
+      if (stroke.length == 1) {
+        canvas.drawCircle(
+          Offset(
+            stroke.first.relativePoint.dx * size.width,
+            stroke.first.relativePoint.dy * size.height,
+          ),
+          stroke.first.paint.strokeWidth / 2,
+          stroke.first.paint,
+        );
+      }
+    }
   }
 
   @override

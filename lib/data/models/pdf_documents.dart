@@ -2,7 +2,6 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'dart:ui' as ui;
 import 'package:pdfx/pdfx.dart';
-import '../enums/drawing_mode.dart';
 import '../models/drawing_point.dart';
 
 class PdfViewerState {
@@ -34,7 +33,7 @@ class PdfViewerState {
     this.rightImageBytes,
   });
 
-  PdfViewerState copyWith({ 
+  PdfViewerState copyWith({
     bool? isLoading,
     int? currentPage,
     int? totalPages,
@@ -84,6 +83,7 @@ class PdfDocumentModel {
   double strokeWidth = 3.0;
   Color selectedColor = Colors.red;
   DrawingMode drawingMode = DrawingMode.pen;
+  List<DrawingPoint> _currentPoints = [];
 
   PdfDocumentModel({
     required this.filePath,
@@ -233,33 +233,78 @@ class PdfDocumentModel {
   Future<void> updatePreviewPage(int page) async {
     final clampedPage = page.clamp(1, stateNotifier.value.totalPages);
     
-    // Actualiza el estado primero
     stateNotifier.value = stateNotifier.value.copyWith(
       previewPage: clampedPage,
       isSliding: true,
     );
 
-    // Renderiza la previsualización
     await renderPreview(clampedPage, width: 320, height: 440);
     
-    // Notifica a los listeners
     stateNotifier.notifyListeners();
   }
 
-  void addDrawingPoint(DrawingPoint point) {
-    final currentState = stateNotifier.value;
-    stateNotifier.value = currentState.copyWith(
-      drawingPoints: [...currentState.drawingPoints, point],
+  void startNewDrawingPoint(Offset localPosition, Size size) {
+    final point = _createDrawingPoint(localPosition, size);
+    _currentPoints = [point];
+    stateNotifier.value = stateNotifier.value.copyWith(
+      drawingPoints: [...stateNotifier.value.drawingPoints, point],
     );
+  }
+
+  void updateDrawingPoint(Offset localPosition, Size size) {
+    final point = _createDrawingPoint(localPosition, size);
+    _currentPoints.add(point);
+    stateNotifier.value = stateNotifier.value.copyWith(
+      drawingPoints: [...stateNotifier.value.drawingPoints, point],
+    );
+  }
+
+  DrawingPoint _createDrawingPoint(Offset localPosition, Size size) {
+    final relativePoint = _transformToImageCoords(localPosition, size);
+    return DrawingPoint(
+      relativePoint: relativePoint,
+      paint: Paint()
+        ..color = selectedColor
+        ..strokeWidth = strokeWidth
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round
+        ..style = PaintingStyle.stroke
+        ..isAntiAlias = true,
+    );
+  }
+
+  Offset _transformToImageCoords(Offset local, Size size) {
+    const imgW = 1000.0;
+    const imgH = 1400.0;
+    final widgetAspect = size.width / size.height;
+    final imgAspect = imgW / imgH;
+
+    double scale, dx = 0, dy = 0;
+    if (widgetAspect > imgAspect) {
+      // Horizontal letterbox
+      scale = size.height / imgH;
+      dx = (size.width - imgW * scale) / 2;
+    } else {
+      // Vertical letterbox
+      scale = size.width / imgW;
+      dy = (size.height - imgH * scale) / 2;
+    }
+    final x = ((local.dx - dx) / (imgW * scale)).clamp(0.0, 1.0);
+    final y = ((local.dy - dy) / (imgH * scale)).clamp(0.0, 1.0);
+    return Offset(x, y);
   }
 
   void undoDrawing() {
     final currentState = stateNotifier.value;
     if (currentState.drawingPoints.isNotEmpty) {
-      stateNotifier.value = currentState.copyWith(
-        drawingPoints: currentState.drawingPoints.sublist(0, currentState.drawingPoints.length - 1),
-      );
+      final newPoints = List<DrawingPoint>.from(currentState.drawingPoints);
+      newPoints.removeLast();
+      stateNotifier.value = currentState.copyWith(drawingPoints: newPoints);
     }
+  }
+
+  void clearDrawing() {
+    stateNotifier.value = stateNotifier.value.copyWith(drawingPoints: []);
   }
 
   void setDrawingMode(DrawingMode mode) {

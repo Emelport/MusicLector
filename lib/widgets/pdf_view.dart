@@ -1,6 +1,7 @@
 import 'dart:typed_data';
-
+import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:pdfx/pdfx.dart';
 import '../data/models/drawing_point.dart';
 import '../data/models/pdf_documents.dart';
@@ -21,14 +22,63 @@ class PdfPageView extends StatelessWidget {
     final isPortrait = orientation == Orientation.portrait;
     final screenSize = MediaQuery.of(context).size;
 
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTapDown: (details) => _handleTapDown(details, screenSize),
-      onVerticalDragEnd: (details) => _handleVerticalDragEnd(details),
-      child: Center(
-        child: isPortrait
+    return Focus(
+      autofocus: true,
+      onKeyEvent: (FocusNode node, KeyEvent event) {
+      if (event is KeyDownEvent) {
+        if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+        documentModel.nextPage();
+        return KeyEventResult.handled;
+        } else if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+        documentModel.previousPage();
+        return KeyEventResult.handled;
+        }
+      }
+      return KeyEventResult.ignored;
+      },
+      child: Stack(
+      children: [
+        GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: (details) => _handleTapDown(details, screenSize),
+        onVerticalDragEnd: (details) => _handleVerticalDragEnd(details),
+        child: Center(
+          child: isPortrait
             ? _buildPortraitView(context)
             : _buildLandscapeView(context),
+        ),
+        ),
+        // Flecha izquierda
+        Positioned(
+        left: 8,
+        top: 0,
+        bottom: 0,
+        child: Center(
+          child: IconButton(
+          icon: const Icon(Icons.arrow_left, size: 40),
+          color: Colors.black.withOpacity(0.5),
+          onPressed: () {
+            documentModel.previousPage();
+          },
+          ),
+        ),
+        ),
+        // Flecha derecha
+        Positioned(
+        right: 8,
+        top: 0,
+        bottom: 0,
+        child: Center(
+          child: IconButton(
+          icon: const Icon(Icons.arrow_right, size: 40),
+          color: Colors.black.withOpacity(0.5),
+          onPressed: () {
+            documentModel.nextPage();
+          },
+          ),
+        ),
+        ),
+      ],
       ),
     );
   }
@@ -39,11 +89,11 @@ class PdfPageView extends StatelessWidget {
     final dx = details.localPosition.dx;
     final width = screenSize.width;
 
-    if (dx > width * 0.7) { // Toque en el 30% derecho
+    if (dx > width * 0.7) {
       documentModel.nextPage();
-    } else if (dx < width * 0.3) { // Toque en el 30% izquierdo
+    } else if (dx < width * 0.3) {
       documentModel.previousPage();
-    } else { // Toque en el 40% central
+    } else {
       documentModel.toggleSlider(!documentModel.stateNotifier.value.showSlider);
     }
   }
@@ -69,33 +119,53 @@ class PdfPageView extends StatelessWidget {
   Widget _buildEditablePage(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        return GestureDetector(
-          onPanStart: (details) {
-            documentModel.startNewDrawingPoint(
-              details.localPosition,
-              Size(constraints.maxWidth, constraints.maxHeight),
-            );
+        return Listener(
+          onPointerDown: (details) {
+            if (details.kind == PointerDeviceKind.stylus || details.kind == PointerDeviceKind.invertedStylus) {
+              documentModel.startNewDrawingPoint(
+                details.localPosition,
+                Size(constraints.maxWidth, constraints.maxHeight),
+                pressure: details.pressure,
+              );
+            }
           },
-          onPanUpdate: (details) {
-            documentModel.updateDrawingPoint(
-              details.localPosition,
-              Size(constraints.maxWidth, constraints.maxHeight),
-            );
+          onPointerMove: (details) {
+            if (details.kind == PointerDeviceKind.stylus || details.kind == PointerDeviceKind.invertedStylus) {
+              documentModel.updateDrawingPoint(
+                details.localPosition,
+                Size(constraints.maxWidth, constraints.maxHeight),
+                pressure: details.pressure,
+              );
+            }
           },
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              Image.memory(
-                documentModel.leftImageBytes!,
-                fit: BoxFit.contain,
-              ),
-              CustomPaint(
-                painter: DrawingPainter(
-                  drawingPoints: documentModel.stateNotifier.value.drawingPoints,
+          child: GestureDetector(
+            onPanStart: (details) {
+              documentModel.startNewDrawingPoint(
+                details.localPosition,
+                Size(constraints.maxWidth, constraints.maxHeight),
+              );
+            },
+            onPanUpdate: (details) {
+              documentModel.updateDrawingPoint(
+                details.localPosition,
+                Size(constraints.maxWidth, constraints.maxHeight),
+              );
+            },
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                Image.memory(
+                  documentModel.leftImageBytes!,
+                  fit: BoxFit.contain,
                 ),
-                size: Size(constraints.maxWidth, constraints.maxHeight),
-              ),
-            ],
+                CustomPaint(
+                  painter: DrawingPainter(
+                    drawingPoints: documentModel.stateNotifier.value.drawingPoints,
+                  ),
+                  size: Size(constraints.maxWidth, constraints.maxHeight),
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -120,30 +190,50 @@ class PdfPageView extends StatelessWidget {
       child: isEditing
           ? LayoutBuilder(
               builder: (context, constraints) {
-                return GestureDetector(
-                  onPanStart: (details) {
-                    documentModel.startNewDrawingPoint(
-                      details.localPosition,
-                      Size(constraints.maxWidth, constraints.maxHeight),
-                    );
+                return Listener(
+                  onPointerDown: (details) {
+                    if (details.kind == PointerDeviceKind.stylus || details.kind == PointerDeviceKind.invertedStylus) {
+                      documentModel.startNewDrawingPoint(
+                        details.localPosition,
+                        Size(constraints.maxWidth, constraints.maxHeight),
+                        pressure: details.pressure,
+                      );
+                    }
                   },
-                  onPanUpdate: (details) {
-                    documentModel.updateDrawingPoint(
-                      details.localPosition,
-                      Size(constraints.maxWidth, constraints.maxHeight),
-                    );
+                  onPointerMove: (details) {
+                    if (details.kind == PointerDeviceKind.stylus || details.kind == PointerDeviceKind.invertedStylus) {
+                      documentModel.updateDrawingPoint(
+                        details.localPosition,
+                        Size(constraints.maxWidth, constraints.maxHeight),
+                        pressure: details.pressure,
+                      );
+                    }
                   },
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      Image.memory(imageBytes, fit: BoxFit.contain),
-                      CustomPaint(
-                        painter: DrawingPainter(
-                          drawingPoints: documentModel.stateNotifier.value.drawingPoints,
+                  child: GestureDetector(
+                    onPanStart: (details) {
+                      documentModel.startNewDrawingPoint(
+                        details.localPosition,
+                        Size(constraints.maxWidth, constraints.maxHeight),
+                      );
+                    },
+                    onPanUpdate: (details) {
+                      documentModel.updateDrawingPoint(
+                        details.localPosition,
+                        Size(constraints.maxWidth, constraints.maxHeight),
+                      );
+                    },
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        Image.memory(imageBytes, fit: BoxFit.contain),
+                        CustomPaint(
+                          painter: DrawingPainter(
+                            drawingPoints: documentModel.stateNotifier.value.drawingPoints,
+                          ),
+                          size: Size(constraints.maxWidth, constraints.maxHeight),
                         ),
-                        size: Size(constraints.maxWidth, constraints.maxHeight),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 );
               },

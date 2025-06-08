@@ -81,6 +81,8 @@ class PdfDocumentModel {
 
   // Editor properties
   double strokeWidth = 3.0;
+  double minStrokeWidth = 1.0;
+  double maxStrokeWidth = 50.0;
   Color selectedColor = Colors.red;
   DrawingMode drawingMode = DrawingMode.pen;
   List<DrawingPoint> _currentPoints = [];
@@ -97,7 +99,8 @@ class PdfDocumentModel {
     try {
       if (multipleFiles) {
         final paths = filePath.split(';|;').map((e) => e.trim()).toList();
-        documents = await Future.wait(paths.map((path) => PdfDocument.openFile(path)));
+        documents =
+            await Future.wait(paths.map((path) => PdfDocument.openFile(path)));
 
         int totalPages = 0;
         pageMap.clear();
@@ -173,7 +176,8 @@ class PdfDocumentModel {
     );
   }
 
-  Future<void> renderPreview(int page, {double width = 120, double height = 170}) async {
+  Future<void> renderPreview(int page,
+      {double width = 120, double height = 170}) async {
     final previewPage = await _getPage(page);
     final previewImage = await previewPage.render(width: width, height: height);
     await previewPage.close();
@@ -185,7 +189,8 @@ class PdfDocumentModel {
 
   Future<void> nextPage() async {
     final currentState = stateNotifier.value;
-    final orientation = MediaQueryData.fromView(WidgetsBinding.instance.window).orientation;
+    final orientation =
+        MediaQueryData.fromView(WidgetsBinding.instance.window).orientation;
     int step = (orientation == Orientation.portrait) ? 1 : 2;
 
     if (currentState.currentPage + step <= currentState.totalPages) {
@@ -198,10 +203,12 @@ class PdfDocumentModel {
 
   Future<void> previousPage() async {
     final currentState = stateNotifier.value;
-    final orientation = MediaQueryData.fromView(WidgetsBinding.instance.window).orientation;
+    final orientation =
+        MediaQueryData.fromView(WidgetsBinding.instance.window).orientation;
     int step = (orientation == Orientation.portrait) ? 1 : 2;
 
-    final newPage = (currentState.currentPage - step).clamp(1, currentState.totalPages);
+    final newPage =
+        (currentState.currentPage - step).clamp(1, currentState.totalPages);
     stateNotifier.value = currentState.copyWith(currentPage: newPage);
     await renderPages();
     await renderPreview(newPage);
@@ -219,7 +226,8 @@ class PdfDocumentModel {
   }
 
   void updateToolbarAlignment(Alignment alignment) {
-    stateNotifier.value = stateNotifier.value.copyWith(toolbarAlignment: alignment);
+    stateNotifier.value =
+        stateNotifier.value.copyWith(toolbarAlignment: alignment);
   }
 
   void toggleSlider(bool show) {
@@ -232,45 +240,58 @@ class PdfDocumentModel {
 
   Future<void> updatePreviewPage(int page) async {
     final clampedPage = page.clamp(1, stateNotifier.value.totalPages);
-    
+
     stateNotifier.value = stateNotifier.value.copyWith(
       previewPage: clampedPage,
       isSliding: true,
     );
 
     await renderPreview(clampedPage, width: 320, height: 440);
-    
+
     stateNotifier.notifyListeners();
   }
 
-  void startNewDrawingPoint(Offset localPosition, Size size) {
-    final point = _createDrawingPoint(localPosition, size);
+  void startNewDrawingPoint(Offset localPosition, Size size, {double? pressure}) {
+    final point = _createDrawingPoint(localPosition, size, pressure: pressure);
     _currentPoints = [point];
     stateNotifier.value = stateNotifier.value.copyWith(
       drawingPoints: [...stateNotifier.value.drawingPoints, point],
     );
   }
 
-  void updateDrawingPoint(Offset localPosition, Size size) {
-    final point = _createDrawingPoint(localPosition, size);
+  void updateDrawingPoint(Offset localPosition, Size size, {double? pressure}) {
+    final point = _createDrawingPoint(localPosition, size, pressure: pressure);
     _currentPoints.add(point);
     stateNotifier.value = stateNotifier.value.copyWith(
       drawingPoints: [...stateNotifier.value.drawingPoints, point],
     );
   }
 
-  DrawingPoint _createDrawingPoint(Offset localPosition, Size size) {
+  DrawingPoint _createDrawingPoint(Offset localPosition, Size size, {double? pressure}) {
     final relativePoint = _transformToImageCoords(localPosition, size);
+    final effectivePressure = pressure ?? 1.0;
+    final widthFactor = drawingMode == DrawingMode.eraser ? 0.8 : 1.0;
+    
     return DrawingPoint(
       relativePoint: relativePoint,
       paint: Paint()
         ..color = selectedColor
-        ..strokeWidth = strokeWidth
+        ..strokeWidth = _calculateStrokeWidth(effectivePressure) * widthFactor
         ..strokeCap = StrokeCap.round
         ..strokeJoin = StrokeJoin.round
         ..style = PaintingStyle.stroke
         ..isAntiAlias = true,
     );
+  }
+
+  double _calculateStrokeWidth(double pressure) {
+    // Ajuste de presión para el lápiz (rango típico: 0.0 a 1.0)
+    final adjustedPressure = pressure.clamp(0.1, 1.0);
+    final minWidth = minStrokeWidth;
+    final maxWidth = strokeWidth;
+    
+    // Interpolación no lineal para mejor sensación de presión
+    return minWidth + (maxWidth - minWidth) * (adjustedPressure * adjustedPressure);
   }
 
   Offset _transformToImageCoords(Offset local, Size size) {
@@ -312,16 +333,19 @@ class PdfDocumentModel {
     selectedColor = mode == DrawingMode.highlighter
         ? selectedColor.withOpacity(0.4)
         : selectedColor.withOpacity(1.0);
+    stateNotifier.notifyListeners();
   }
 
   void setStrokeWidth(double width) {
-    strokeWidth = width;
+    strokeWidth = width.clamp(minStrokeWidth, maxStrokeWidth);
+    stateNotifier.notifyListeners();
   }
 
   void setColor(Color color) {
     selectedColor = drawingMode == DrawingMode.highlighter
         ? color.withOpacity(0.4)
         : color.withOpacity(1.0);
+    stateNotifier.notifyListeners();
   }
 
   Future<void> saveDrawing() async {
@@ -330,20 +354,22 @@ class PdfDocumentModel {
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
     final size = Size(1000, 1400);
-    
+
     // Draw background image
     final bgImage = await decodeImageFromList(leftImageBytes!);
     canvas.drawImage(bgImage, Offset.zero, Paint());
-    
+
     // Draw annotations
-    final painter = DrawingPainter(drawingPoints: stateNotifier.value.drawingPoints);
+    final painter =
+        DrawingPainter(drawingPoints: stateNotifier.value.drawingPoints);
     painter.paint(canvas, size);
-    
+
     final picture = recorder.endRecording();
-    final image = await picture.toImage(size.width.toInt(), size.height.toInt());
+    final image =
+        await picture.toImage(size.width.toInt(), size.height.toInt());
     final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
     final pngBytes = byteData?.buffer.asUint8List();
-    
+
     if (pngBytes != null) {
       editedImageBytes = pngBytes;
       stateNotifier.value = stateNotifier.value.copyWith(

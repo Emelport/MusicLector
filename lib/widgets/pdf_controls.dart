@@ -40,7 +40,7 @@ class PdfControls extends StatelessWidget {
                 onPressed: () => Navigator.of(context).pop(),
               ),
               IconButton(
-                icon: Icon(Icons.edit, color: Colors.blue[900]),
+                icon: Icon(Icons.edit_document, color: Colors.blue[900]),
                 tooltip: 'Edit',
                 onPressed: () => documentModel.toggleEditing(true),
               ),

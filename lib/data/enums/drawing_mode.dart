@@ -1,4 +1,0 @@
-enum DrawingMode {
-  pen,
-  highlighter,
-}

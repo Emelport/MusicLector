@@ -1,10 +1,5 @@
 import 'package:flutter/material.dart';
 
-enum DrawingMode {
-  pen,
-  highlighter,
-  eraser,
-}
 
 class DrawingPoint {
   final Offset relativePoint; // x,y en rango 0..1

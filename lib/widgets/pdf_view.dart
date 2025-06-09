@@ -1,97 +1,95 @@
+
 import 'dart:typed_data';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:pdfx/pdfx.dart';
+import 'package:music_lector/data/models/pdf_documents.dart';
 import '../data/models/drawing_point.dart';
-import '../data/models/pdf_documents.dart';
 
 class PdfPageView extends StatelessWidget {
-  final PdfDocumentModel documentModel;
-  final bool isEditing;
-
   const PdfPageView({
     super.key,
     required this.documentModel,
     required this.isEditing,
   });
 
+  final PdfDocumentModel documentModel;
+  final bool isEditing;
+
   @override
   Widget build(BuildContext context) {
-    final orientation = MediaQuery.of(context).orientation;
-    final isPortrait = orientation == Orientation.portrait;
-    final screenSize = MediaQuery.of(context).size;
+    final Orientation orientation = MediaQuery.of(context).orientation;
+    final bool isPortrait = orientation == Orientation.portrait;
+    final Size screenSize = MediaQuery.of(context).size;
 
     return Focus(
       autofocus: true,
       onKeyEvent: (FocusNode node, KeyEvent event) {
-      if (event is KeyDownEvent) {
-        if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
-        documentModel.nextPage();
-        return KeyEventResult.handled;
-        } else if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
-        documentModel.previousPage();
-        return KeyEventResult.handled;
+        if (event is KeyDownEvent) {
+          if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+            documentModel.nextPage();
+            return KeyEventResult.handled;
+          } else if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+            documentModel.previousPage();
+            return KeyEventResult.handled;
+          }
         }
-      }
-      return KeyEventResult.ignored;
+        return KeyEventResult.ignored;
       },
       child: Stack(
-      children: [
-        GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTapDown: (details) => _handleTapDown(details, screenSize),
-        onVerticalDragEnd: (details) => _handleVerticalDragEnd(details),
-        child: Center(
-          child: isPortrait
-            ? _buildPortraitView(context)
-            : _buildLandscapeView(context),
-        ),
-        ),
-        // Flecha izquierda
-        Positioned(
-        left: 8,
-        top: 0,
-        bottom: 0,
-        child: Center(
-          child: IconButton(
-          icon: const Icon(Icons.arrow_left, size: 40),
-          color: Colors.black.withOpacity(0.5),
-          onPressed: () {
-            documentModel.previousPage();
-          },
+        children: <Widget>[
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTapDown: (TapDownDetails d) => _handleTapDown(d, screenSize),
+            onVerticalDragEnd: _handleVerticalDragEnd,
+            child: Center(
+              child: isPortrait
+                  ? _buildPortraitView(context)
+                  : _buildLandscapeView(context),
+            ),
           ),
-        ),
-        ),
-        // Flecha derecha
-        Positioned(
-        right: 8,
-        top: 0,
-        bottom: 0,
-        child: Center(
-          child: IconButton(
-          icon: const Icon(Icons.arrow_right, size: 40),
-          color: Colors.black.withOpacity(0.5),
-          onPressed: () {
-            documentModel.nextPage();
-          },
+          // ← arrow
+          Positioned(
+            left: 8,
+            top: 0,
+            bottom: 0,
+            child: Center(
+              child: IconButton(
+                icon: const Icon(Icons.arrow_left, size: 40),
+                color: Colors.black.withOpacity(0.5),
+                onPressed: documentModel.previousPage,
+              ),
+            ),
           ),
-        ),
-        ),
-      ],
+          // → arrow
+          Positioned(
+            right: 8,
+            top: 0,
+            bottom: 0,
+            child: Center(
+              child: IconButton(
+                icon: const Icon(Icons.arrow_right, size: 40),
+                color: Colors.black.withOpacity(0.5),
+                onPressed: documentModel.nextPage,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
 
+  // -------------------------------------------------------------------------
+  // Interaction helpers
+  // -------------------------------------------------------------------------
   void _handleTapDown(TapDownDetails details, Size screenSize) {
     if (isEditing) return;
-    
-    final dx = details.localPosition.dx;
-    final width = screenSize.width;
+    final double dx = details.localPosition.dx;
+    final double w = screenSize.width;
 
-    if (dx > width * 0.7) {
+    if (dx > w * 0.7) {
       documentModel.nextPage();
-    } else if (dx < width * 0.3) {
+    } else if (dx < w * 0.3) {
       documentModel.previousPage();
     } else {
       documentModel.toggleSlider(!documentModel.stateNotifier.value.showSlider);
@@ -104,144 +102,73 @@ class PdfPageView extends StatelessWidget {
     }
   }
 
+  // -------------------------------------------------------------------------
+  // Layout helpers
+  // -------------------------------------------------------------------------
   Widget _buildPortraitView(BuildContext context) {
     return AspectRatio(
       aspectRatio: 1000 / 1400,
-      child: isEditing
-          ? _buildEditablePage(context)
-          : Image.memory(
-              documentModel.editedImageBytes ?? documentModel.leftImageBytes!,
-              fit: BoxFit.contain,
-            ),
+      child: isEditing ? _buildEditablePage(context) : _buildStaticImage(documentModel.stateNotifier.value.leftImageBytes),
     );
   }
 
-  Widget _buildEditablePage(BuildContext context) {
+  Widget _buildLandscapeView(BuildContext context) {
+    final PdfViewerState s = documentModel.stateNotifier.value;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        _buildLandscapePage(s.leftImageBytes, context),
+        if (s.rightImageBytes != null) const SizedBox(width: 4),
+        if (s.rightImageBytes != null) _buildLandscapePage(s.rightImageBytes, context),
+      ],
+    );
+  }
+
+  Widget _buildLandscapePage(Uint8List? bytes, BuildContext context) {
+    return AspectRatio(
+      aspectRatio: 1000 / 1400,
+      child: isEditing ? _buildEditablePage(context, imageBytes: bytes) : _buildStaticImage(bytes),
+    );
+  }
+
+  Widget _buildStaticImage(Uint8List? bytes) {
+    return bytes == null
+        ? const Center(child: CircularProgressIndicator())
+        : Image.memory(bytes, fit: BoxFit.contain);
+  }
+
+  Widget _buildEditablePage(BuildContext context, {Uint8List? imageBytes}) {
     return LayoutBuilder(
-      builder: (context, constraints) {
+      builder: (BuildContext ctx, BoxConstraints c) {
         return Listener(
-          onPointerDown: (details) {
-            if (details.kind == PointerDeviceKind.stylus || details.kind == PointerDeviceKind.invertedStylus) {
-              documentModel.startNewDrawingPoint(
-                details.localPosition,
-                Size(constraints.maxWidth, constraints.maxHeight),
-                pressure: details.pressure,
-              );
+          onPointerDown: (PointerDownEvent e) {
+            if (e.kind == PointerDeviceKind.stylus ||
+                e.kind == PointerDeviceKind.invertedStylus) {
+              documentModel.startNewDrawingPoint(e.localPosition, Size(c.maxWidth, c.maxHeight), pressure: e.pressure);
             }
           },
-          onPointerMove: (details) {
-            if (details.kind == PointerDeviceKind.stylus || details.kind == PointerDeviceKind.invertedStylus) {
-              documentModel.updateDrawingPoint(
-                details.localPosition,
-                Size(constraints.maxWidth, constraints.maxHeight),
-                pressure: details.pressure,
-              );
+          onPointerMove: (PointerMoveEvent e) {
+            if (e.kind == PointerDeviceKind.stylus ||
+                e.kind == PointerDeviceKind.invertedStylus) {
+              documentModel.updateDrawingPoint(e.localPosition, Size(c.maxWidth, c.maxHeight), pressure: e.pressure);
             }
           },
           child: GestureDetector(
-            onPanStart: (details) {
-              documentModel.startNewDrawingPoint(
-                details.localPosition,
-                Size(constraints.maxWidth, constraints.maxHeight),
-              );
-            },
-            onPanUpdate: (details) {
-              documentModel.updateDrawingPoint(
-                details.localPosition,
-                Size(constraints.maxWidth, constraints.maxHeight),
-              );
-            },
+            onPanStart: (DragStartDetails d) => documentModel.startNewDrawingPoint(d.localPosition, Size(c.maxWidth, c.maxHeight)),
+            onPanUpdate: (DragUpdateDetails d) => documentModel.updateDrawingPoint(d.localPosition, Size(c.maxWidth, c.maxHeight)),
             child: Stack(
               fit: StackFit.expand,
-              children: [
-                Image.memory(
-                  documentModel.leftImageBytes!,
-                  fit: BoxFit.contain,
-                ),
+              children: <Widget>[
+                _buildStaticImage(imageBytes ?? documentModel.stateNotifier.value.leftImageBytes),
                 CustomPaint(
-                  painter: DrawingPainter(
-                    drawingPoints: documentModel.stateNotifier.value.drawingPoints,
-                  ),
-                  size: Size(constraints.maxWidth, constraints.maxHeight),
+                  painter: DrawingPainter(drawingPoints: documentModel.stateNotifier.value.drawingPoints),
+                  size: Size(c.maxWidth, c.maxHeight),
                 ),
               ],
             ),
           ),
         );
       },
-    );
-  }
-
-  Widget _buildLandscapeView(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _buildLandscapePage(documentModel.leftImageBytes!, context),
-        if (documentModel.rightImageBytes != null) const SizedBox(width: 4),
-        if (documentModel.rightImageBytes != null)
-          _buildLandscapePage(documentModel.rightImageBytes!, context),
-      ],
-    );
-  }
-
-  Widget _buildLandscapePage(Uint8List imageBytes, BuildContext context) {
-    return AspectRatio(
-      aspectRatio: 1000 / 1400,
-      child: isEditing
-          ? LayoutBuilder(
-              builder: (context, constraints) {
-                return Listener(
-                  onPointerDown: (details) {
-                    if (details.kind == PointerDeviceKind.stylus || details.kind == PointerDeviceKind.invertedStylus) {
-                      documentModel.startNewDrawingPoint(
-                        details.localPosition,
-                        Size(constraints.maxWidth, constraints.maxHeight),
-                        pressure: details.pressure,
-                      );
-                    }
-                  },
-                  onPointerMove: (details) {
-                    if (details.kind == PointerDeviceKind.stylus || details.kind == PointerDeviceKind.invertedStylus) {
-                      documentModel.updateDrawingPoint(
-                        details.localPosition,
-                        Size(constraints.maxWidth, constraints.maxHeight),
-                        pressure: details.pressure,
-                      );
-                    }
-                  },
-                  child: GestureDetector(
-                    onPanStart: (details) {
-                      documentModel.startNewDrawingPoint(
-                        details.localPosition,
-                        Size(constraints.maxWidth, constraints.maxHeight),
-                      );
-                    },
-                    onPanUpdate: (details) {
-                      documentModel.updateDrawingPoint(
-                        details.localPosition,
-                        Size(constraints.maxWidth, constraints.maxHeight),
-                      );
-                    },
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        Image.memory(imageBytes, fit: BoxFit.contain),
-                        CustomPaint(
-                          painter: DrawingPainter(
-                            drawingPoints: documentModel.stateNotifier.value.drawingPoints,
-                          ),
-                          size: Size(constraints.maxWidth, constraints.maxHeight),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            )
-          : Image.memory(
-              documentModel.editedImageBytes ?? imageBytes,
-              fit: BoxFit.contain,
-            ),
     );
   }
 }

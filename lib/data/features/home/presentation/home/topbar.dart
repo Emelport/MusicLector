@@ -8,6 +8,8 @@ import 'package:music_lector/data/repositories/file_repository.dart';
 import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
+import 'package:music_lector/core/utils/snackbar_utils.dart';
+import 'package:music_lector/core/events/file_events.dart';
 
 class TopBar extends StatelessWidget implements PreferredSizeWidget {
   const TopBar({Key? key}) : super(key: key);
@@ -47,7 +49,8 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
             title: const Text('Editar datos del archivo'),
             content: TextField(
               controller: nameController,
-              decoration: const InputDecoration(labelText: 'Nombre del archivo'),
+              decoration:
+                  const InputDecoration(labelText: 'Nombre del archivo'),
             ),
             actions: [
               TextButton(
@@ -78,9 +81,13 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
           FileModel(id: null, name: editedName, path: newFilePath),
         );
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Archivo copiado y guardado: $editedName')),
+        SnackbarUtils.showMessage(
+          context,
+          'Archivo copiado y guardado: $editedName',
         );
+
+        // Notify about file changes
+        FileEvents().notifyFileUpdate();
       }
     }
   }
@@ -115,8 +122,12 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
       }
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Archivos sincronizados')),
+    // Notify about file changes
+    FileEvents().notifyFileUpdate();
+
+    SnackbarUtils.showMessage(
+      context,
+      'Archivos sincronizados',
     );
   }
 
@@ -140,7 +151,8 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
             width: 180,
             child: TextField(
               decoration: InputDecoration(
-                contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 15),
+                contentPadding:
+                    const EdgeInsets.symmetric(vertical: 0, horizontal: 15),
                 hintText: 'Buscar',
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8.0),
@@ -179,69 +191,69 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
         ),
         PopupMenuButton<String>(
           icon: Icon(Icons.menu_outlined, color: Colors.blue[900]),
-        onSelected: (value) async {
-  bool isFullScreen = await windowManager.isFullScreen();
+          onSelected: (value) async {
+            bool isFullScreen = await windowManager.isFullScreen();
 
-  switch (value) {
-    case 'fullscreen':
-      if (!isFullScreen) {
-      await windowManager.setFullScreen(true);
-      await windowManager.setResizable(false);
-      // Oculta la barra de título si es posible
-      await windowManager.setTitleBarStyle(TitleBarStyle.hidden);
-      } else {
-      await windowManager.setFullScreen(false);
-      await windowManager.setResizable(true);
-      await windowManager.setTitleBarStyle(TitleBarStyle.normal);
-      await windowManager.setSize(const Size(1200, 800));
-      await windowManager.center();
-      await windowManager.show();
-      await windowManager.focus();
-      (context as Element).markNeedsBuild();
-      }
-      break;
+            switch (value) {
+              case 'fullscreen':
+                if (!isFullScreen) {
+                  await windowManager.setFullScreen(true);
+                  await windowManager.setResizable(false);
+                  // Oculta la barra de título si es posible
+                  await windowManager.setTitleBarStyle(TitleBarStyle.hidden);
+                } else {
+                  await windowManager.setFullScreen(false);
+                  await windowManager.setResizable(true);
+                  await windowManager.setTitleBarStyle(TitleBarStyle.normal);
+                  await windowManager.setSize(const Size(1200, 800));
+                  await windowManager.center();
+                  await windowManager.show();
+                  await windowManager.focus();
+                  (context as Element).markNeedsBuild();
+                }
+                break;
 
-    case 'windows':
-      if (isFullScreen) {
-        await windowManager.setFullScreen(false);
-        await windowManager.setResizable(true);
-        // Set a reasonable default size when exiting fullscreen
-        await windowManager.setSize(const Size(1200, 800));
-        await windowManager.center();
-        await windowManager.show();
-        await windowManager.focus();
-        // Optionally, force a rebuild if your layout does not update automatically
-        // (Uncomment the next line if needed)
-         (context as Element).markNeedsBuild();
-      }
-      break;
+              case 'windows':
+                if (isFullScreen) {
+                  await windowManager.setFullScreen(false);
+                  await windowManager.setResizable(true);
+                  // Set a reasonable default size when exiting fullscreen
+                  await windowManager.setSize(const Size(1200, 800));
+                  await windowManager.center();
+                  await windowManager.show();
+                  await windowManager.focus();
+                  // Optionally, force a rebuild if your layout does not update automatically
+                  // (Uncomment the next line if needed)
+                  (context as Element).markNeedsBuild();
+                }
+                break;
 
-    case 'exit':
-      if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-        await windowManager.close();
-      } else {
-        // For other platforms, you might want to use exit(0) or similar
-        exit(0);
-      }
-      break;
-  }
-},
-
+              case 'exit':
+                if (Platform.isWindows ||
+                    Platform.isLinux ||
+                    Platform.isMacOS) {
+                  await windowManager.close();
+                } else {
+                  // For other platforms, you might want to use exit(0) or similar
+                  exit(0);
+                }
+                break;
+            }
+          },
           itemBuilder: (context) => const [
             PopupMenuItem(
               value: 'fullscreen',
               child: Text('Pantalla completa'),
             ),
-             PopupMenuItem(
+            PopupMenuItem(
               value: 'windows',
               child: Text('Ventana'),
             ),
-             PopupMenuItem(
+            PopupMenuItem(
               value: 'exit',
               child: Text('Cerrar Aplicacion'),
             ),
           ],
-          
         ),
         IconButton(
           icon: Icon(Icons.sync_outlined, color: Colors.blue[900]),

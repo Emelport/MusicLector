@@ -1,18 +1,49 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:music_lector/data/repositories/file_repository.dart';
 import 'package:music_lector/data/models/file.dart';
+import 'package:music_lector/core/events/file_events.dart';
+import 'package:music_lector/core/utils/snackbar_utils.dart';
 
-class PdfList extends StatelessWidget {
+class PdfList extends StatefulWidget {
   const PdfList({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final repo = Provider.of<FileRepositoryImpl>(context, listen: false);
+  State<PdfList> createState() => _PdfListState();
+}
 
+class _PdfListState extends State<PdfList> {
+  Future<List<FileModel>>? _filesFuture;
+  late StreamSubscription _fileUpdateSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshFiles();
+    _fileUpdateSubscription = FileEvents().onFileUpdate.listen((_) {
+      _refreshFiles();
+    });
+  }
+
+  @override
+  void dispose() {
+    _fileUpdateSubscription.cancel();
+    super.dispose();
+  }
+
+  void _refreshFiles() {
+    final repo = Provider.of<FileRepositoryImpl>(context, listen: false);
+    setState(() {
+      _filesFuture = repo.getFiles();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return FutureBuilder<List<FileModel>>(
-      future: repo.getFiles(),
+      future: _filesFuture,
       builder: (context, snapshot) {
         if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
@@ -66,12 +97,19 @@ class PdfList extends StatelessWidget {
                                 ),
                                 ElevatedButton(
                                   onPressed: () {
-                                    // repo.updateFileName(file, nameController.text);
+                                    final repo =
+                                        Provider.of<FileRepositoryImpl>(context,
+                                            listen: false);
+                                    repo.updateFile(FileModel(
+                                      id: file.id,
+                                      name: nameController.text,
+                                      path: file.path,
+                                    ));
                                     Navigator.pop(context);
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                          content: Text(
-                                              'Nombre actualizado: ${nameController.text}')),
+                                    _refreshFiles();
+                                    SnackbarUtils.showMessage(
+                                      context,
+                                      'Nombre actualizado: ${nameController.text}',
                                     );
                                   },
                                   child: const Text('Guardar'),

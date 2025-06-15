@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:music_lector/data/features/home/presentation/Library/pdf_list.dart';
 import 'package:music_lector/data/models/pdf_documents.dart';
 import 'package:music_lector/widgets/page_slider.dart';
 import 'package:music_lector/widgets/pdf_controls.dart';
@@ -14,7 +15,7 @@ class PdfViewer extends StatefulWidget {
     super.key,
     required this.filePath,
     this.multipleFiles = false,
-    this.indexStart = 0,
+    this.indexStart = -1, // -1 indica que usaremos la página guardada
   });
 
   @override
@@ -25,22 +26,30 @@ class _PdfViewerState extends State<PdfViewer> with WidgetsBindingObserver {
   late PdfDocumentModel documentModel;
   Orientation? _lastOrientation;
   bool _isInitialized = false;
+  int? _initialPage;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    documentModel = PdfDocumentModel(
-      filePath: widget.filePath,
-      multipleFiles: widget.multipleFiles,
-      indexStart: widget.indexStart,
-    );
     _initializePdf();
   }
 
   Future<void> _initializePdf() async {
     try {
+      // Obtener la última página vista
+      _initialPage = widget.indexStart >= 0
+          ? widget.indexStart
+          : await PdfLastViewed.getLastPage(widget.filePath);
+      
+      documentModel = PdfDocumentModel(
+        filePath: widget.filePath,
+        multipleFiles: widget.multipleFiles,
+        indexStart: _initialPage ?? 0,
+      );
+      
       await documentModel.loadPdf();
+      
       if (mounted) {
         setState(() {
           _isInitialized = true;
@@ -48,14 +57,20 @@ class _PdfViewerState extends State<PdfViewer> with WidgetsBindingObserver {
       }
     } catch (e) {
       print('Error initializing PDF: $e');
-      // Puedes agregar manejo de errores visual aquí
+      // Manejo de errores visual si es necesario
     }
   }
 
   @override
   void dispose() {
+    // Guardar la última página vista al salir
+    if (_isInitialized) {
+      final currentPage = documentModel.stateNotifier.value.currentPage;
+      PdfLastViewed.saveLastPage(widget.filePath, currentPage);
+      documentModel.dispose();
+    }
+    
     WidgetsBinding.instance.removeObserver(this);
-    documentModel.dispose();
     super.dispose();
   }
 

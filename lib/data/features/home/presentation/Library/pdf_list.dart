@@ -2,10 +2,31 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:music_lector/data/repositories/file_repository.dart';
 import 'package:music_lector/data/models/file.dart';
 import 'package:music_lector/core/events/file_events.dart';
 import 'package:music_lector/core/utils/snackbar_utils.dart';
+
+class PdfLastViewed {
+  static Future<void> saveLastPage(String filePath, int page) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('last_page_$filePath', page);
+  }
+  
+  static Future<int> getLastPage(String filePath) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt('last_page_$filePath') ?? 0;
+  }
+  
+  static Future<void> clear() async {
+    final prefs = await SharedPreferences.getInstance();
+    final keys = prefs.getKeys().where((k) => k.startsWith('last_page_'));
+    for (final key in keys) {
+      await prefs.remove(key);
+    }
+  }
+}
 
 class PdfList extends StatefulWidget {
   const PdfList({super.key});
@@ -17,6 +38,7 @@ class PdfList extends StatefulWidget {
 class _PdfListState extends State<PdfList> {
   Future<List<FileModel>>? _filesFuture;
   late StreamSubscription _fileUpdateSubscription;
+  final Map<String, int> _lastViewedPagesCache = {};
 
   @override
   void initState() {
@@ -25,12 +47,18 @@ class _PdfListState extends State<PdfList> {
     _fileUpdateSubscription = FileEvents().onFileUpdate.listen((_) {
       _refreshFiles();
     });
+    
+    // Precargar las últimas páginas vistas
+    _loadLastViewedPages();
   }
 
-  @override
-  void dispose() {
-    _fileUpdateSubscription.cancel();
-    super.dispose();
+  Future<void> _loadLastViewedPages() async {
+    final prefs = await SharedPreferences.getInstance();
+    final keys = prefs.getKeys().where((k) => k.startsWith('last_page_'));
+    for (final key in keys) {
+      final filePath = key.replaceFirst('last_page_', '');
+      _lastViewedPagesCache[filePath] = prefs.getInt(key) ?? 0;
+    }
   }
 
   void _refreshFiles() {
@@ -38,6 +66,12 @@ class _PdfListState extends State<PdfList> {
     setState(() {
       _filesFuture = repo.getFiles();
     });
+  }
+
+  @override
+  void dispose() {
+    _fileUpdateSubscription.cancel();
+    super.dispose();
   }
 
   @override
@@ -54,26 +88,34 @@ class _PdfListState extends State<PdfList> {
           separatorBuilder: (context, index) => const Divider(height: 1),
           itemBuilder: (context, index) {
             final file = files[index];
+            final lastPage = _lastViewedPagesCache[file.path] ?? 0;
+            final hasLastPage = lastPage > 0;
+            
             return ListTile(
               leading: const Icon(Icons.picture_as_pdf, color: Colors.red),
               title: Text(
                 file.name,
-                style:
-                    const TextStyle(fontWeight: FontWeight.w500, fontSize: 16),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w500, 
+                  fontSize: 16
+                ),
                 overflow: TextOverflow.ellipsis,
               ),
-              subtitle: null,
+              subtitle: hasLastPage 
+                  ? Text('Última página vista: ${lastPage + 1}')
+                  : null,
               trailing: IconButton(
                 icon: const Icon(Icons.edit, color: Colors.grey),
                 onPressed: () {
                   showModalBottomSheet(
                     context: context,
                     shape: const RoundedRectangleBorder(
-                      borderRadius:
-                          BorderRadius.vertical(top: Radius.circular(12)),
+                      borderRadius: BorderRadius.vertical(
+                        top: Radius.circular(12),
+                      ),
                     ),
                     builder: (context) {
-                      final nameController =
+                      final nameController = 
                           TextEditingController(text: file.name);
                       return Padding(
                         padding: const EdgeInsets.all(16.0),
@@ -97,9 +139,10 @@ class _PdfListState extends State<PdfList> {
                                 ),
                                 ElevatedButton(
                                   onPressed: () {
-                                    final repo =
-                                        Provider.of<FileRepositoryImpl>(context,
-                                            listen: false);
+                                    final repo = Provider.of<FileRepositoryImpl>(
+                                      context, 
+                                      listen: false,
+                                    );
                                     repo.updateFile(FileModel(
                                       id: file.id,
                                       name: nameController.text,
@@ -126,8 +169,10 @@ class _PdfListState extends State<PdfList> {
               onTap: () {
                 context.push('/pdf_viewer', extra: file.path);
               },
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16, 
+                vertical: 4,
+              ),
               dense: true,
               selected: false,
             );

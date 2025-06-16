@@ -1,4 +1,3 @@
-
 import 'dart:async';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -77,7 +76,7 @@ class PdfDocumentModel {
     _state = _state.copyWith(toolbarAlignment: alignment);
   }
 
-  Future<void> loadPdf() async {
+  Future<void> loadPdf({int? initialPage}) async {
     _state = _state.copyWith(isLoading: true);
 
     // 1️⃣ Open document(s) ----------------------------------------------------
@@ -96,13 +95,13 @@ class PdfDocumentModel {
         }
       }
       _state = _state.copyWith(
-        currentPage: indexStart.clamp(1, pagePointer - 1),
+        currentPage: initialPage ?? indexStart.clamp(1, pagePointer - 1),
         totalPages: pagePointer - 1,
       );
     } else {
       _singleDocument = await PdfDocument.openFile(filePath);
       _state = _state.copyWith(
-        currentPage: indexStart.clamp(1, _singleDocument.pagesCount),
+        currentPage: initialPage ?? indexStart.clamp(1, _singleDocument.pagesCount),
         totalPages: _singleDocument.pagesCount,
       );
     }

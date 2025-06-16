@@ -4,6 +4,7 @@ import 'package:music_lector/data/models/setlist.dart';
 import 'package:music_lector/data/models/setlist_file.dart';
 import 'package:music_lector/data/repositories/file_repository.dart';
 import 'package:music_lector/data/features/lector/presentation/pdf_viewer.dart';
+import 'package:pdfx/pdfx.dart';
 
 class SetListMenu extends StatefulWidget {
   const SetListMenu({Key? key}) : super(key: key);
@@ -244,6 +245,17 @@ class _SetListMenuState extends State<SetListMenu> {
     super.dispose();
   }
 
+
+  Future<int> getGlobalStartPageAsync(List<SetListFile> files, int index) async {
+    int page = 1;
+    for (int i = 0; i < index; i++) {
+      final doc = await PdfDocument.openFile(files[i].file.path);
+      page += doc.pagesCount;
+      await doc.close();
+    }
+    return page;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Row(
@@ -465,6 +477,8 @@ class _SetListMenuState extends State<SetListMenu> {
                                             .files
                                             .map((f) => f.file.path)
                                             .toList();
+                                        final initialPage = await getGlobalStartPageAsync(_selectedSetList!.files, index);
+
                                         Navigator.push(
                                           context,
                                           MaterialPageRoute(
@@ -472,6 +486,7 @@ class _SetListMenuState extends State<SetListMenu> {
                                               filePath: filePaths.join(';|;'),
                                               multipleFiles: true,
                                               indexStart: index,
+                                              initialPage: initialPage,
                                             ),
                                           ),
                                         );

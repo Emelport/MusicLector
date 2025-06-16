@@ -10,12 +10,14 @@ class PdfViewer extends StatefulWidget {
   final String filePath;
   final bool multipleFiles;
   final int indexStart;
+  final int? initialPage; // <-- agrega esto
 
   const PdfViewer({
     super.key,
     required this.filePath,
     this.multipleFiles = false,
-    this.indexStart = -1, // -1 indica que usaremos la página guardada
+    this.indexStart = -1,
+    this.initialPage,
   });
 
   @override
@@ -37,19 +39,18 @@ class _PdfViewerState extends State<PdfViewer> with WidgetsBindingObserver {
 
   Future<void> _initializePdf() async {
     try {
-      // Obtener la última página vista
-      _initialPage = widget.indexStart >= 0
-          ? widget.indexStart
-          : await PdfLastViewed.getLastPage(widget.filePath);
-      
+      // Prioridad: initialPage > lastPage > 1
+      int? lastPage = await PdfLastViewed.getLastPage(widget.filePath);
+      _initialPage = widget.initialPage ?? lastPage ?? 1;
+
       documentModel = PdfDocumentModel(
         filePath: widget.filePath,
         multipleFiles: widget.multipleFiles,
-        indexStart: _initialPage ?? 0,
+        indexStart: widget.indexStart,
       );
-      
-      await documentModel.loadPdf();
-      
+
+      await documentModel.loadPdf(initialPage: _initialPage);
+
       if (mounted) {
         setState(() {
           _isInitialized = true;
@@ -57,7 +58,6 @@ class _PdfViewerState extends State<PdfViewer> with WidgetsBindingObserver {
       }
     } catch (e) {
       print('Error initializing PDF: $e');
-      // Manejo de errores visual si es necesario
     }
   }
 

@@ -32,6 +32,7 @@ class _PdfViewerState extends State<PdfViewer> with WidgetsBindingObserver {
   String? _errorMessage;
   bool _isBookmarkModalOpen = false;
   bool _wasSliderVisibleBeforeModal = false;
+  bool _showControls = false;
 
   @override
   void initState() {
@@ -146,26 +147,31 @@ class _PdfViewerState extends State<PdfViewer> with WidgetsBindingObserver {
               PdfPageView(
                 documentModel: documentModel,
                 isEditing: state.isEditing,
+                onToggleControls: _toggleControls,
               ),
 
               // Controls
-              if (!state.isEditing)
+              if (!state.isEditing && _showControls)
                 PdfControls(
                   documentModel: documentModel,
                   alignment: state.toolbarAlignment,
                   onOpenBookmarkModal: () async {
                     _wasSliderVisibleBeforeModal =
                         state.showSlider || state.isSliding;
-                    setState(() => _isBookmarkModalOpen = true);
+                    setState(() {
+                      _isBookmarkModalOpen = true;
+                      _showControls = false;
+                    });
                     if (state.showSlider) {
                       documentModel.toggleSlider(false);
                     }
                   },
                   onCloseBookmarkModal: () {
-                    setState(() => _isBookmarkModalOpen = false);
-                    if (_wasSliderVisibleBeforeModal) {
-                      documentModel.toggleSlider(true);
-                    }
+                    setState(() {
+                      _isBookmarkModalOpen = false;
+                      _showControls = true;
+                    });
+                    documentModel.toggleSlider(true);
                   },
                 ),
 
@@ -174,12 +180,15 @@ class _PdfViewerState extends State<PdfViewer> with WidgetsBindingObserver {
                 PdfEditorTools(
                   documentModel: documentModel,
                   drawingPoints: state.drawingPoints,
+                  onExitEdit: () {
+                    setState(() {
+                      _showControls = true;
+                    });
+                  },
                 ),
 
               // Page Slider
-              if ((state.showSlider || state.isSliding) &&
-                  !state.isEditing &&
-                  !_isBookmarkModalOpen)
+              if (_showControls && !state.isEditing && !_isBookmarkModalOpen)
                 PageSlider(
                   pageCount: state.totalPages,
                   currentPage: state.currentPage,
@@ -199,5 +208,16 @@ class _PdfViewerState extends State<PdfViewer> with WidgetsBindingObserver {
         );
       },
     );
+  }
+
+  void _toggleControls() {
+    setState(() {
+      _showControls = !_showControls;
+      if (_showControls) {
+        documentModel.toggleSlider(true);
+      } else {
+        documentModel.toggleSlider(false);
+      }
+    });
   }
 }

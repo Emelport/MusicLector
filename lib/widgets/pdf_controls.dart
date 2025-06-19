@@ -472,7 +472,9 @@ class PdfControls extends StatelessWidget {
                         ),
                       );
                     },
-                  );
+                  ).then((_) {
+                    if (onCloseBookmarkModal != null) onCloseBookmarkModal!();
+                  });
                 },
               ),
             ],

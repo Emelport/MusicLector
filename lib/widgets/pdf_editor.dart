@@ -5,11 +5,13 @@ import 'package:music_lector/data/models/pdf_documents.dart';
 class PdfEditorTools extends StatelessWidget {
   final PdfDocumentModel documentModel;
   final List<DrawingPoint> drawingPoints;
+  final VoidCallback? onExitEdit;
 
   const PdfEditorTools({
     super.key,
     required this.documentModel,
     required this.drawingPoints,
+    this.onExitEdit,
   });
 
   @override
@@ -42,7 +44,8 @@ class PdfEditorTools extends StatelessWidget {
                       children: [
                         _buildToolButton(
                           icon: Icons.brush,
-                          isSelected: documentModel.drawingMode == DrawingMode.pen,
+                          isSelected:
+                              documentModel.drawingMode == DrawingMode.pen,
                           onPressed: () {
                             documentModel.setDrawingMode(DrawingMode.pen);
                             documentModel.stateNotifier.notifyListeners();
@@ -51,16 +54,19 @@ class PdfEditorTools extends StatelessWidget {
                         ),
                         _buildToolButton(
                           icon: Icons.highlight,
-                          isSelected: documentModel.drawingMode == DrawingMode.highlighter,
+                          isSelected: documentModel.drawingMode ==
+                              DrawingMode.highlighter,
                           onPressed: () {
-                            documentModel.setDrawingMode(DrawingMode.highlighter);
+                            documentModel
+                                .setDrawingMode(DrawingMode.highlighter);
                             documentModel.stateNotifier.notifyListeners();
                           },
                           tooltip: "Resaltador",
                         ),
                         _buildToolButton(
                           icon: Icons.auto_fix_high,
-                          isSelected: documentModel.drawingMode == DrawingMode.eraser,
+                          isSelected:
+                              documentModel.drawingMode == DrawingMode.eraser,
                           onPressed: () {
                             documentModel.setDrawingMode(DrawingMode.eraser);
                             documentModel.stateNotifier.notifyListeners();
@@ -96,11 +102,13 @@ class PdfEditorTools extends StatelessWidget {
                               },
                               child: AnimatedContainer(
                                 duration: const Duration(milliseconds: 150),
-                                margin: const EdgeInsets.symmetric(horizontal: 4),
+                                margin:
+                                    const EdgeInsets.symmetric(horizontal: 4),
                                 width: isSelected ? 36 : 24,
                                 height: isSelected ? 36 : 24,
                                 decoration: BoxDecoration(
-                                  color: documentModel.drawingMode == DrawingMode.eraser
+                                  color: documentModel.drawingMode ==
+                                          DrawingMode.eraser
                                       ? Colors.grey
                                       : normalized,
                                   shape: BoxShape.circle,
@@ -123,7 +131,8 @@ class PdfEditorTools extends StatelessWidget {
                                 child: isSelected
                                     ? Center(
                                         child: Icon(
-                                          documentModel.drawingMode == DrawingMode.eraser
+                                          documentModel.drawingMode ==
+                                                  DrawingMode.eraser
                                               ? Icons.auto_fix_high
                                               : Icons.check,
                                           size: 18,
@@ -160,9 +169,10 @@ class PdfEditorTools extends StatelessWidget {
                               documentModel.setStrokeWidth(value);
                               documentModel.stateNotifier.notifyListeners();
                             },
-                            activeColor: documentModel.drawingMode == DrawingMode.eraser
-                                ? Colors.grey
-                                : Colors.blue.shade900,
+                            activeColor:
+                                documentModel.drawingMode == DrawingMode.eraser
+                                    ? Colors.grey
+                                    : Colors.blue.shade900,
                           ),
                         ],
                       ),
@@ -174,7 +184,7 @@ class PdfEditorTools extends StatelessWidget {
                         IconButton(
                           icon: const Icon(Icons.undo),
                           tooltip: "Deshacer",
-                          onPressed: drawingPoints.isNotEmpty 
+                          onPressed: drawingPoints.isNotEmpty
                               ? () {
                                   documentModel.undoDrawing();
                                   documentModel.stateNotifier.notifyListeners();
@@ -195,9 +205,9 @@ class PdfEditorTools extends StatelessWidget {
                           icon: const Icon(Icons.save),
                           color: Colors.green,
                           tooltip: "Guardar",
-                          onPressed: () {
-                            documentModel.saveDrawing();
-                            documentModel.stateNotifier.notifyListeners();
+                          onPressed: () async {
+                            await documentModel.saveDrawing();
+                            if (onExitEdit != null) onExitEdit!();
                           },
                         ),
                         IconButton(
@@ -206,7 +216,7 @@ class PdfEditorTools extends StatelessWidget {
                           tooltip: "Cerrar",
                           onPressed: () {
                             documentModel.toggleEditing(false);
-                            documentModel.stateNotifier.notifyListeners();
+                            if (onExitEdit != null) onExitEdit!();
                           },
                         ),
                       ],
@@ -241,9 +251,7 @@ class PdfEditorTools extends StatelessWidget {
         ),
         child: IconButton(
           icon: Icon(icon),
-          color: isSelected 
-              ? Colors.blue[900] 
-              : Colors.grey,
+          color: isSelected ? Colors.blue[900] : Colors.grey,
           onPressed: onPressed,
         ),
       ),

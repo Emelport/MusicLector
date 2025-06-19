@@ -140,7 +140,8 @@ class PdfDocumentModel {
     int minPage = _activeBookmarkFrom ?? 1;
     int maxPage = _activeBookmarkTo ?? _state.totalPages;
     if (orientation == Orientation.landscape) {
-      int nextLeft = (_state.currentPage + 1).clamp(minPage, maxPage);
+      int nextLeft =
+          (_state.currentPage + _landscapeStep).clamp(minPage, maxPage);
       if (nextLeft > maxPage) return;
       await _goToPageInternal(nextLeft);
     } else {
@@ -157,7 +158,8 @@ class PdfDocumentModel {
     int minPage = _activeBookmarkFrom ?? 1;
     int maxPage = _activeBookmarkTo ?? _state.totalPages;
     if (orientation == Orientation.landscape) {
-      int prevLeft = (_state.currentPage - 1).clamp(minPage, maxPage);
+      int prevLeft =
+          (_state.currentPage - _landscapeStep).clamp(minPage, maxPage);
       if (prevLeft < minPage) return;
       await _goToPageInternal(prevLeft);
     } else {
@@ -524,6 +526,11 @@ class PdfDocumentModel {
 
   int? get activeBookmarkFrom => _activeBookmarkFrom;
   int? get activeBookmarkTo => _activeBookmarkTo;
+
+  int _landscapeStep = 1; // 1: avanzar de 1 en 1, 2: de 2 en 2
+  void setLandscapeStep(int step) {
+    _landscapeStep = step;
+  }
 }
 
 // -----------------------------------------------------------------------------

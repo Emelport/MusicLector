@@ -29,6 +29,9 @@ class _PdfViewerState extends State<PdfViewer> with WidgetsBindingObserver {
   Orientation? _lastOrientation;
   bool _isInitialized = false;
   int? _initialPage;
+  String? _errorMessage;
+  bool _isBookmarkModalOpen = false;
+  bool _wasSliderVisibleBeforeModal = false;
 
   @override
   void initState() {
@@ -58,6 +61,13 @@ class _PdfViewerState extends State<PdfViewer> with WidgetsBindingObserver {
       }
     } catch (e) {
       print('Error initializing PDF: $e');
+      if (mounted) {
+        setState(() {
+          _isInitialized = false;
+          _errorMessage =
+              'No se pudo abrir el PDF. Verifica que el archivo exista y no esté dañado.';
+        });
+      }
     }
   }
 
@@ -69,7 +79,7 @@ class _PdfViewerState extends State<PdfViewer> with WidgetsBindingObserver {
       PdfLastViewed.saveLastPage(widget.filePath, currentPage);
       documentModel.dispose();
     }
-    
+
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -85,9 +95,43 @@ class _PdfViewerState extends State<PdfViewer> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    if (_errorMessage != null) {
+      return Scaffold(
+        body: Stack(
+          children: [
+            Center(
+              child: Text(_errorMessage!,
+                  style: const TextStyle(color: Colors.red, fontSize: 18)),
+            ),
+            Positioned(
+              top: 24,
+              right: 24,
+              child: IconButton(
+                icon: const Icon(Icons.close, size: 32, color: Colors.red),
+                tooltip: 'Cerrar',
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
     if (!_isInitialized) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
+      return Scaffold(
+        body: Stack(
+          children: [
+            const Center(child: CircularProgressIndicator()),
+            Positioned(
+              top: 24,
+              right: 24,
+              child: IconButton(
+                icon: const Icon(Icons.close, size: 32, color: Colors.red),
+                tooltip: 'Cerrar',
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+            ),
+          ],
+        ),
       );
     }
 
@@ -109,6 +153,20 @@ class _PdfViewerState extends State<PdfViewer> with WidgetsBindingObserver {
                 PdfControls(
                   documentModel: documentModel,
                   alignment: state.toolbarAlignment,
+                  onOpenBookmarkModal: () async {
+                    _wasSliderVisibleBeforeModal =
+                        state.showSlider || state.isSliding;
+                    setState(() => _isBookmarkModalOpen = true);
+                    if (state.showSlider) {
+                      documentModel.toggleSlider(false);
+                    }
+                  },
+                  onCloseBookmarkModal: () {
+                    setState(() => _isBookmarkModalOpen = false);
+                    if (_wasSliderVisibleBeforeModal) {
+                      documentModel.toggleSlider(true);
+                    }
+                  },
                 ),
 
               // Editor Tools
@@ -119,7 +177,9 @@ class _PdfViewerState extends State<PdfViewer> with WidgetsBindingObserver {
                 ),
 
               // Page Slider
-              if (state.showSlider || state.isSliding)
+              if ((state.showSlider || state.isSliding) &&
+                  !state.isEditing &&
+                  !_isBookmarkModalOpen)
                 PageSlider(
                   pageCount: state.totalPages,
                   currentPage: state.currentPage,

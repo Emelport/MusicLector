@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:music_lector/data/models/drawing_point.dart';
@@ -40,7 +42,8 @@ class PdfDocumentModel {
 
   /// Global page‑to‑document map when multiple files are open. Each entry maps
   /// the global page index (1‑N) to its owning [PdfDocument].
-  final List<MapEntry<int, PdfDocument>> _pageMap = <MapEntry<int, PdfDocument>>[];
+  final List<MapEntry<int, PdfDocument>> _pageMap =
+      <MapEntry<int, PdfDocument>>[];
 
   /// Full‑resolution cache (key = 1‑based page index)
   final Map<int, Uint8List> _pageCache = <int, Uint8List>{};
@@ -62,6 +65,9 @@ class PdfDocumentModel {
   Color selectedColor = Colors.red;
   DrawingMode drawingMode = DrawingMode.pen;
 
+  late PdfConfig pdfConfig;
+  String get _configPath => '$filePath.config.json';
+
   /// Convenience getters ------------------------------------------------------
 
   PdfViewerState get _state => stateNotifier.value;
@@ -77,12 +83,16 @@ class PdfDocumentModel {
   }
 
   Future<void> loadPdf({int? initialPage}) async {
+    await _loadConfig();
     _state = _state.copyWith(isLoading: true);
 
     // 1️⃣ Open document(s) ----------------------------------------------------
     if (multipleFiles) {
-      final List<String> paths =
-          filePath.split(';|;').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+      final List<String> paths = filePath
+          .split(';|;')
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
       _documents.clear();
       _documents.addAll(await Future.wait(paths.map(PdfDocument.openFile)));
 
@@ -101,13 +111,21 @@ class PdfDocumentModel {
     } else {
       _singleDocument = await PdfDocument.openFile(filePath);
       _state = _state.copyWith(
-        currentPage: initialPage ?? indexStart.clamp(1, _singleDocument.pagesCount),
+        currentPage:
+            initialPage ?? indexStart.clamp(1, _singleDocument.pagesCount),
         totalPages: _singleDocument.pagesCount,
       );
     }
 
     // 2️⃣ Render first visible page(s) so UI appears immediately -------------
-    await _renderVisiblePages();
+    final Orientation orientation =
+        MediaQueryData.fromView(WidgetsBinding.instance.window).orientation;
+    int left = _state.currentPage;
+    int right =
+        orientation == Orientation.landscape && left + 1 <= _state.totalPages
+            ? left + 1
+            : -1;
+    await _renderVisiblePagesCustom(left, right);
     await _renderPreview(_state.currentPage);
 
     // 3️⃣ Kick‑off background preloading of all pages & previews --------------
@@ -119,10 +137,16 @@ class PdfDocumentModel {
   Future<void> nextPage() async {
     final Orientation orientation =
         MediaQueryData.fromView(WidgetsBinding.instance.window).orientation;
-    final int step = orientation == Orientation.portrait ? 1 : 2;
-
-    if (_state.currentPage + step <= _state.totalPages) {
-      await _goToPageInternal(_state.currentPage + step);
+    int minPage = _activeBookmarkFrom ?? 1;
+    int maxPage = _activeBookmarkTo ?? _state.totalPages;
+    if (orientation == Orientation.landscape) {
+      int nextLeft = (_state.currentPage + 1).clamp(minPage, maxPage);
+      if (nextLeft > maxPage) return;
+      await _goToPageInternal(nextLeft);
+    } else {
+      if (_state.currentPage + 1 <= maxPage) {
+        await _goToPageInternal(_state.currentPage + 1);
+      }
     }
   }
 
@@ -130,13 +154,25 @@ class PdfDocumentModel {
   Future<void> previousPage() async {
     final Orientation orientation =
         MediaQueryData.fromView(WidgetsBinding.instance.window).orientation;
-    final int step = orientation == Orientation.portrait ? 1 : 2;
-
-    await _goToPageInternal((_state.currentPage - step).clamp(1, _state.totalPages));
+    int minPage = _activeBookmarkFrom ?? 1;
+    int maxPage = _activeBookmarkTo ?? _state.totalPages;
+    if (orientation == Orientation.landscape) {
+      int prevLeft = (_state.currentPage - 1).clamp(minPage, maxPage);
+      if (prevLeft < minPage) return;
+      await _goToPageInternal(prevLeft);
+    } else {
+      if (_state.currentPage - 1 >= minPage) {
+        await _goToPageInternal(_state.currentPage - 1);
+      }
+    }
   }
 
   /// Jump directly to page [page]
-  Future<void> goToPage(int page) async => _goToPageInternal(page.clamp(1, _state.totalPages));
+  Future<void> goToPage(int page) async {
+    int minPage = _activeBookmarkFrom ?? 1;
+    int maxPage = _activeBookmarkTo ?? _state.totalPages;
+    await _goToPageInternal(page.clamp(minPage, maxPage));
+  }
 
   /// Updates preview page index while the user is sliding the tooltip slider
   Future<void> updatePreviewPage(int page) async {
@@ -154,32 +190,40 @@ class PdfDocumentModel {
   void toggleSlider(bool show) => _state = _state.copyWith(showSlider: show);
 
   /// Toggle editing mode (drawing)
-  void toggleEditing(bool editing) => _state = _state.copyWith(isEditing: editing);
+  void toggleEditing(bool editing) =>
+      _state = _state.copyWith(isEditing: editing);
 
   // -------------------------------------------------------------------------
   // Drawing helpers
   // -------------------------------------------------------------------------
 
-  void startNewDrawingPoint(Offset localPosition, Size size, {double? pressure}) {
-    final DrawingPoint p = _createDrawingPoint(localPosition, size, pressure: pressure);
+  void startNewDrawingPoint(Offset localPosition, Size size,
+      {double? pressure}) {
+    final DrawingPoint p =
+        _createDrawingPoint(localPosition, size, pressure: pressure);
     _currentPoints = <DrawingPoint>[p];
-    _state = _state.copyWith(drawingPoints: <DrawingPoint>[..._state.drawingPoints, p]);
+    _state = _state
+        .copyWith(drawingPoints: <DrawingPoint>[..._state.drawingPoints, p]);
   }
 
   void updateDrawingPoint(Offset localPosition, Size size, {double? pressure}) {
-    final DrawingPoint p = _createDrawingPoint(localPosition, size, pressure: pressure);
+    final DrawingPoint p =
+        _createDrawingPoint(localPosition, size, pressure: pressure);
     _currentPoints.add(p);
-    _state = _state.copyWith(drawingPoints: <DrawingPoint>[..._state.drawingPoints, p]);
+    _state = _state
+        .copyWith(drawingPoints: <DrawingPoint>[..._state.drawingPoints, p]);
   }
 
   void undoDrawing() {
     if (_state.drawingPoints.isNotEmpty) {
-      final List<DrawingPoint> pts = List<DrawingPoint>.from(_state.drawingPoints)..removeLast();
+      final List<DrawingPoint> pts =
+          List<DrawingPoint>.from(_state.drawingPoints)..removeLast();
       _state = _state.copyWith(drawingPoints: pts);
     }
   }
 
-  void clearDrawing() => _state = _state.copyWith(drawingPoints: <DrawingPoint>[]);
+  void clearDrawing() =>
+      _state = _state.copyWith(drawingPoints: <DrawingPoint>[]);
 
   void setDrawingMode(DrawingMode mode) {
     drawingMode = mode;
@@ -211,22 +255,27 @@ class PdfDocumentModel {
     const Size size = Size(1000, 1400);
 
     // Original page
-    final ui.Image base = await decodeImageFromList(_pageCache[_state.currentPage]!);
+    final ui.Image base =
+        await decodeImageFromList(_pageCache[_state.currentPage]!);
     canvas.drawImage(base, Offset.zero, Paint());
 
     // Annotations
-    final DrawingPainter painter = DrawingPainter(drawingPoints: _state.drawingPoints);
+    final DrawingPainter painter =
+        DrawingPainter(drawingPoints: _state.drawingPoints);
     painter.paint(canvas, size);
 
     final ui.Picture pic = recorder.endRecording();
-    final ui.Image img = await pic.toImage(size.width.toInt(), size.height.toInt());
+    final ui.Image img =
+        await pic.toImage(size.width.toInt(), size.height.toInt());
     final ByteData? data = await img.toByteData(format: ui.ImageByteFormat.png);
     if (data == null) return;
 
     final Uint8List png = data.buffer.asUint8List();
     _editedCache[_state.currentPage] = png;
-    _pageCache[_state.currentPage] = png; // overwrite cache so navigation is instant
+    _pageCache[_state.currentPage] =
+        png; // overwrite cache so navigation is instant
 
+    saveDrawingForPage(_state.currentPage, _state.drawingPoints);
     _state = _state.copyWith(isEditing: false, drawingPoints: <DrawingPoint>[]);
   }
 
@@ -249,32 +298,40 @@ class PdfDocumentModel {
     if (_state.isEditing && _state.drawingPoints.isNotEmpty) {
       await saveDrawing();
     }
-
-    _state = _state.copyWith(currentPage: page, previewPage: page, isSliding: false);
-    await _renderVisiblePages();
-    await _renderPreview(page);
+    final Orientation orientation =
+        MediaQueryData.fromView(WidgetsBinding.instance.window).orientation;
+    int minPage = _activeBookmarkFrom ?? 1;
+    int maxPage = _activeBookmarkTo ?? _state.totalPages;
+    int left = page.clamp(minPage, maxPage);
+    int right =
+        orientation == Orientation.landscape && left < maxPage ? left + 1 : -1;
+    // Si la última página es impar, la última vista será (totalPages, null)
+    _state =
+        _state.copyWith(currentPage: left, previewPage: left, isSliding: false);
+    await _renderVisiblePagesCustom(left, right);
+    await _renderPreview(left);
   }
 
-  Future<void> _renderVisiblePages() async {
-    final int leftIndex = _state.currentPage;
-    final int rightIndex = leftIndex + 1 <= _state.totalPages ? leftIndex + 1 : -1;
-
+  Future<void> _renderVisiblePagesCustom(int leftIndex, int rightIndex) async {
     // Left
     if (!_pageCache.containsKey(leftIndex)) {
       _pageCache[leftIndex] = await _renderPage(leftIndex);
     }
-
-    // Right (optional)
-    if (rightIndex != -1 && !_pageCache.containsKey(rightIndex)) {
-      _pageCache[rightIndex] = await _renderPage(rightIndex);
+    // Right (opcional)
+    Uint8List? rightBytes;
+    if (rightIndex != -1 &&
+        rightIndex != leftIndex &&
+        rightIndex <= (_activeBookmarkTo ?? _state.totalPages)) {
+      if (!_pageCache.containsKey(rightIndex)) {
+        _pageCache[rightIndex] = await _renderPage(rightIndex);
+      }
+      rightBytes = _editedCache[rightIndex] ?? _pageCache[rightIndex];
+    } else {
+      rightBytes = null;
     }
-
     // Extract edited version if available
-    final Uint8List? leftBytes = _editedCache[leftIndex] ?? _pageCache[leftIndex];
-    final Uint8List? rightBytes = rightIndex != -1
-        ? _editedCache[rightIndex] ?? _pageCache[rightIndex]
-        : null;
-
+    final Uint8List? leftBytes =
+        _editedCache[leftIndex] ?? _pageCache[leftIndex];
     _state = _state.copyWith(
       leftImageBytes: leftBytes,
       rightImageBytes: rightBytes,
@@ -282,23 +339,35 @@ class PdfDocumentModel {
   }
 
   /// Force re-render of the current visible page(s) – useful after orientation change
-  Future<void> renderPages() async => _renderVisiblePages();
+  Future<void> renderPages() async {
+    final Orientation orientation =
+        MediaQueryData.fromView(WidgetsBinding.instance.window).orientation;
+    int left = _state.currentPage;
+    int right =
+        orientation == Orientation.landscape && left + 1 <= _state.totalPages
+            ? left + 1
+            : -1;
+    await _renderVisiblePagesCustom(left, right);
+  }
 
-
-  Future<void> _renderPreview(int page, {double width = 120, double height = 170}) async {
+  Future<void> _renderPreview(int page,
+      {double width = 120, double height = 170}) async {
     if (_previewCache.containsKey(page)) {
       _state = _state.copyWith(previewImageBytes: _previewCache[page]);
       return;
     }
 
-    final Uint8List bytes = await _renderPage(page, width: width.toInt(), height: height.toInt());
+    final Uint8List bytes =
+        await _renderPage(page, width: width.toInt(), height: height.toInt());
     _previewCache[page] = bytes;
     _state = _state.copyWith(previewImageBytes: bytes);
   }
 
-  Future<Uint8List> _renderPage(int page, {int width = 1000, int height = 1400}) async {
+  Future<Uint8List> _renderPage(int page,
+      {int width = 1000, int height = 1400}) async {
     final PdfPage p = await _getPage(page);
-    final PdfPageImage? img = await p.render(width: width.toDouble(), height: height.toDouble());
+    final PdfPageImage? img =
+        await p.render(width: width.toDouble(), height: height.toDouble());
     await p.close();
     return img!.bytes;
   }
@@ -336,7 +405,8 @@ class PdfDocumentModel {
   // Helper: drawing point creation & coordinate transform
   // -------------------------------------------------------------------------
 
-  DrawingPoint _createDrawingPoint(Offset local, Size size, {double? pressure}) {
+  DrawingPoint _createDrawingPoint(Offset local, Size size,
+      {double? pressure}) {
     final Offset relative = _transformToImageCoords(local, size);
     final double p = pressure ?? 1.0;
     final double widthFactor = drawingMode == DrawingMode.eraser ? 0.8 : 1.0;
@@ -376,9 +446,85 @@ class PdfDocumentModel {
     final double y = ((local.dy - dy) / (imgH * scale)).clamp(0.0, 1.0);
     return Offset(x, y);
   }
+
+  Future<void> _loadConfig() async {
+    final file = File(_configPath);
+    if (await file.exists()) {
+      final jsonStr = await file.readAsString();
+      pdfConfig = PdfConfig.fromJson(json.decode(jsonStr));
+    } else {
+      pdfConfig = PdfConfig(bookmarks: [], drawings: {});
+    }
+  }
+
+  Future<void> saveConfig() async {
+    final file = File(_configPath);
+    await file.writeAsString(json.encode(pdfConfig.toJson()));
+  }
+
+  // Marcadores
+  List<PdfBookmark> get bookmarks => pdfConfig.bookmarks;
+  void addBookmark(String name, int page) {
+    addBookmarkWithRange(name, page, page);
+  }
+
+  void removeBookmark(int index) {
+    pdfConfig.bookmarks.removeAt(index);
+    saveConfig();
+    stateNotifier.notifyListeners();
+  }
+
+  void renameBookmark(int index, String newName) {
+    pdfConfig.bookmarks[index] = PdfBookmark(
+        name: newName,
+        fromPage: pdfConfig.bookmarks[index].fromPage,
+        toPage: pdfConfig.bookmarks[index].toPage);
+    saveConfig();
+    stateNotifier.notifyListeners();
+  }
+
+  Future<void> goToBookmark(int index) async {
+    final b = pdfConfig.bookmarks[index];
+    _activeBookmarkFrom = b.fromPage;
+    _activeBookmarkTo = b.toPage;
+    final Orientation orientation =
+        MediaQueryData.fromView(WidgetsBinding.instance.window).orientation;
+    if (orientation == Orientation.landscape && b.fromPage < b.toPage) {
+      // Mostrar par inicial (fromPage, fromPage+1) si ambos están en rango
+      await goToPage(b.fromPage);
+    } else {
+      await goToPage(b.fromPage);
+    }
+  }
+
+  // Dibujos por página
+  void saveDrawingForPage(int page, List<DrawingPoint> points) {
+    pdfConfig.drawings[page] = points;
+    saveConfig();
+  }
+
+  List<DrawingPoint> getDrawingForPage(int page) {
+    return pdfConfig.drawings[page] ?? [];
+  }
+
+  int? _activeBookmarkFrom;
+  int? _activeBookmarkTo;
+
+  void addBookmarkWithRange(String name, int from, int to) {
+    pdfConfig.bookmarks
+        .add(PdfBookmark(name: name, fromPage: from, toPage: to));
+    saveConfig();
+    stateNotifier.notifyListeners();
+  }
+
+  void clearBookmarkLimits() {
+    _activeBookmarkFrom = null;
+    _activeBookmarkTo = null;
+  }
+
+  int? get activeBookmarkFrom => _activeBookmarkFrom;
+  int? get activeBookmarkTo => _activeBookmarkTo;
 }
-
-
 
 // -----------------------------------------------------------------------------
 // Immutable UI state – kept intentionally lean to avoid rebuilding too much UI
@@ -442,4 +588,43 @@ class PdfViewerState {
       rightImageBytes: rightImageBytes ?? this.rightImageBytes,
     );
   }
+}
+
+class PdfBookmark {
+  final String name;
+  final int fromPage;
+  final int toPage;
+  PdfBookmark(
+      {required this.name, required this.fromPage, required this.toPage});
+
+  Map<String, dynamic> toJson() =>
+      {'name': name, 'fromPage': fromPage, 'toPage': toPage};
+  factory PdfBookmark.fromJson(Map<String, dynamic> json) => PdfBookmark(
+        name: json['name'],
+        fromPage: json['fromPage'] ?? json['page'],
+        toPage: json['toPage'] ?? json['page'],
+      );
+}
+
+class PdfConfig {
+  List<PdfBookmark> bookmarks;
+  Map<int, List<DrawingPoint>> drawings;
+
+  PdfConfig({required this.bookmarks, required this.drawings});
+
+  Map<String, dynamic> toJson() => {
+        'bookmarks': bookmarks.map((b) => b.toJson()).toList(),
+        'drawings': drawings.map((k, v) =>
+            MapEntry(k.toString(), v.map((p) => p.toJson()).toList())),
+      };
+
+  factory PdfConfig.fromJson(Map<String, dynamic> json) => PdfConfig(
+        bookmarks: (json['bookmarks'] as List)
+            .map((b) => PdfBookmark.fromJson(b))
+            .toList(),
+        drawings: (json['drawings'] as Map<String, dynamic>).map(
+          (k, v) => MapEntry(int.parse(k),
+              (v as List).map((p) => DrawingPoint.fromJson(p)).toList()),
+        ),
+      );
 }

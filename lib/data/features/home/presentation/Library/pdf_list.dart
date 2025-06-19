@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:music_lector/data/models/drawing_point.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:music_lector/data/repositories/file_repository.dart';
@@ -26,6 +27,39 @@ class PdfLastViewed {
       await prefs.remove(key);
     }
   }
+}
+
+class PdfBookmark {
+  final String name;
+  final int page;
+  PdfBookmark({required this.name, required this.page});
+
+  Map<String, dynamic> toJson() => {'name': name, 'page': page};
+  factory PdfBookmark.fromJson(Map<String, dynamic> json) =>
+      PdfBookmark(name: json['name'], page: json['page']);
+}
+
+class PdfConfig {
+  List<PdfBookmark> bookmarks;
+  Map<int, List<DrawingPoint>> drawings;
+
+  PdfConfig({required this.bookmarks, required this.drawings});
+
+  Map<String, dynamic> toJson() => {
+        'bookmarks': bookmarks.map((b) => b.toJson()).toList(),
+        'drawings': drawings.map((k, v) =>
+            MapEntry(k.toString(), v.map((p) => p.toJson()).toList())),
+      };
+
+  factory PdfConfig.fromJson(Map<String, dynamic> json) => PdfConfig(
+        bookmarks: (json['bookmarks'] as List)
+            .map((b) => PdfBookmark.fromJson(b))
+            .toList(),
+        drawings: (json['drawings'] as Map<String, dynamic>).map(
+          (k, v) => MapEntry(int.parse(k),
+              (v as List).map((p) => DrawingPoint.fromJson(p)).toList()),
+        ),
+      );
 }
 
 class PdfList extends StatefulWidget {
@@ -171,7 +205,6 @@ class _PdfListState extends State<PdfList> {
                 await context.push('/pdf_viewer', extra: file.path);
                 _refreshFiles();
               },
-              
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 16,
                 vertical: 4,

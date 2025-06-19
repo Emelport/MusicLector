@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-
 class DrawingPoint {
   final Offset relativePoint; // x,y en rango 0..1
   final Paint paint;
@@ -11,6 +10,28 @@ class DrawingPoint {
     required this.paint,
     DateTime? time,
   }) : time = time ?? DateTime.now();
+
+  Map<String, dynamic> toJson() => {
+        'relativePoint': {'dx': relativePoint.dx, 'dy': relativePoint.dy},
+        'color': paint.color.value,
+        'strokeWidth': paint.strokeWidth,
+        'time': time.millisecondsSinceEpoch,
+      };
+
+  factory DrawingPoint.fromJson(Map<String, dynamic> json) => DrawingPoint(
+        relativePoint: Offset(
+          (json['relativePoint']['dx'] as num).toDouble(),
+          (json['relativePoint']['dy'] as num).toDouble(),
+        ),
+        paint: Paint()
+          ..color = Color(json['color'])
+          ..strokeWidth = (json['strokeWidth'] as num).toDouble()
+          ..strokeCap = StrokeCap.round
+          ..strokeJoin = StrokeJoin.round
+          ..style = PaintingStyle.stroke
+          ..isAntiAlias = true,
+        time: DateTime.fromMillisecondsSinceEpoch(json['time'] as int),
+      );
 }
 
 class DrawingPainter extends CustomPainter {
@@ -27,7 +48,12 @@ class DrawingPainter extends CustomPainter {
     List<DrawingPoint> currentStroke = [];
 
     for (int i = 0; i < drawingPoints.length; i++) {
-      if (i == 0 || drawingPoints[i].time.difference(drawingPoints[i-1].time).inMilliseconds > 100) {
+      if (i == 0 ||
+          drawingPoints[i]
+                  .time
+                  .difference(drawingPoints[i - 1].time)
+                  .inMilliseconds >
+              100) {
         if (currentStroke.isNotEmpty) {
           strokes.add(List.from(currentStroke));
           currentStroke.clear();

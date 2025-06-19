@@ -250,7 +250,7 @@ class PdfDocumentModel {
       await saveDrawing();
     }
 
-    _state = _state.copyWith(currentPage: page, isSliding: false);
+    _state = _state.copyWith(currentPage: page, previewPage: page, isSliding: false);
     await _renderVisiblePages();
     await _renderPreview(page);
   }

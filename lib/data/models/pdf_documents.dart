@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:music_lector/data/models/drawing_point.dart';
@@ -120,7 +121,7 @@ class PdfDocumentModel {
     // 2️⃣ Render first visible page(s) so UI appears immediately -------------
     final Orientation orientation =
         MediaQueryData.fromView(WidgetsBinding.instance.window).orientation;
-    int left = _state.currentPage;
+    int left = max(1, _state.currentPage);
     int right =
         orientation == Orientation.landscape && left + 1 <= _state.totalPages
             ? left + 1
@@ -304,10 +305,9 @@ class PdfDocumentModel {
         MediaQueryData.fromView(WidgetsBinding.instance.window).orientation;
     int minPage = _activeBookmarkFrom ?? 1;
     int maxPage = _activeBookmarkTo ?? _state.totalPages;
-    int left = page.clamp(minPage, maxPage);
+    int left = max(1, page.clamp(minPage, maxPage));
     int right =
         orientation == Orientation.landscape && left < maxPage ? left + 1 : -1;
-    // Si la última página es impar, la última vista será (totalPages, null)
     _state =
         _state.copyWith(currentPage: left, previewPage: left, isSliding: false);
     await _renderVisiblePagesCustom(left, right);
@@ -315,6 +315,11 @@ class PdfDocumentModel {
   }
 
   Future<void> _renderVisiblePagesCustom(int leftIndex, int rightIndex) async {
+    // Validación defensiva: nunca renderizar páginas menores a 1
+    if (leftIndex < 1) {
+      print('Intento de renderizar leftIndex inválido: $leftIndex');
+      return;
+    }
     // Left
     if (!_pageCache.containsKey(leftIndex)) {
       _pageCache[leftIndex] = await _renderPage(leftIndex);
@@ -323,6 +328,7 @@ class PdfDocumentModel {
     Uint8List? rightBytes;
     if (rightIndex != -1 &&
         rightIndex != leftIndex &&
+        rightIndex >= 1 &&
         rightIndex <= (_activeBookmarkTo ?? _state.totalPages)) {
       if (!_pageCache.containsKey(rightIndex)) {
         _pageCache[rightIndex] = await _renderPage(rightIndex);
@@ -344,7 +350,7 @@ class PdfDocumentModel {
   Future<void> renderPages() async {
     final Orientation orientation =
         MediaQueryData.fromView(WidgetsBinding.instance.window).orientation;
-    int left = _state.currentPage;
+    int left = max(1, _state.currentPage);
     int right =
         orientation == Orientation.landscape && left + 1 <= _state.totalPages
             ? left + 1
@@ -367,6 +373,11 @@ class PdfDocumentModel {
 
   Future<Uint8List> _renderPage(int page,
       {int width = 1000, int height = 1400}) async {
+    if (page < 1 || page > _state.totalPages) {
+      print(
+          'Intento de renderizar página inválida: $page (rango válido: 1..${_state.totalPages})');
+      throw Exception('Número de página fuera de rango: $page');
+    }
     final PdfPage p = await _getPage(page);
     final PdfPageImage? img =
         await p.render(width: width.toDouble(), height: height.toDouble());
@@ -540,9 +551,9 @@ class PdfDocumentModel {
 class PdfViewerState {
   const PdfViewerState({
     this.isLoading = true,
-    this.currentPage = 1,
-    this.totalPages = 0,
-    this.previewPage = 1,
+    int currentPage = 1,
+    int totalPages = 0,
+    int previewPage = 1,
     this.isEditing = false,
     this.showSlider = false,
     this.isSliding = false,
@@ -551,7 +562,9 @@ class PdfViewerState {
     this.drawingPoints = const <DrawingPoint>[],
     this.leftImageBytes,
     this.rightImageBytes,
-  });
+  })  : currentPage = currentPage < 1 ? 1 : currentPage,
+        totalPages = totalPages,
+        previewPage = previewPage < 1 ? 1 : previewPage;
 
   final bool isLoading;
   final int currentPage;
@@ -582,9 +595,13 @@ class PdfViewerState {
   }) {
     return PdfViewerState(
       isLoading: isLoading ?? this.isLoading,
-      currentPage: currentPage ?? this.currentPage,
+      currentPage: (currentPage ?? this.currentPage) < 1
+          ? 1
+          : (currentPage ?? this.currentPage),
       totalPages: totalPages ?? this.totalPages,
-      previewPage: previewPage ?? this.previewPage,
+      previewPage: (previewPage ?? this.previewPage) < 1
+          ? 1
+          : (previewPage ?? this.previewPage),
       isEditing: isEditing ?? this.isEditing,
       showSlider: showSlider ?? this.showSlider,
       isSliding: isSliding ?? this.isSliding,

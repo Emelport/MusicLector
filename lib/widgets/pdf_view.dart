@@ -98,6 +98,8 @@ class _PdfPageViewState extends State<PdfPageView> {
         (state.currentPage + 1 >=
             (widget.documentModel.activeBookmarkTo ?? state.totalPages));
     final bool hasRightPage = state.rightImageBytes != null;
+    final bool isEditing = widget.isEditing;
+    final String activeEditSide = widget.documentModel.activeEditSide;
 
     return Focus(
       autofocus: true,
@@ -190,61 +192,72 @@ class _PdfPageViewState extends State<PdfPageView> {
               ),
             ),
           ),
-          // FABs de selección de página para zoom en landscape
-          if (_showZoomPageSelector && isLandscape && hasRightPage) ...[
+          // FABs de selección de página para edición en landscape
+          if (isLandscape && isEditing && hasRightPage) ...[
             AnimatedPositioned(
               duration: const Duration(milliseconds: 220),
               curve: Curves.easeOutBack,
               top: 16,
-              right: 76,
-              child: AnimatedScale(
-                scale: _showZoomPageSelector ? 1.0 : 0.0,
-                duration: const Duration(milliseconds: 220),
-                curve: Curves.easeOutBack,
-                child: AnimatedOpacity(
-                  opacity: _showZoomPageSelector ? 1.0 : 0.0,
-                  duration: const Duration(milliseconds: 220),
-                  child: FloatingActionButton(
-                    mini: true,
-                    heroTag: 'zoomRightBtn',
-                    backgroundColor: Colors.white,
-                    onPressed: () => _selectZoomPage('right'),
-                    elevation: 4,
-                    child: Text('2',
-                        style: TextStyle(
-                            color: Colors.blue[900],
-                            fontWeight: FontWeight.bold,
-                            fontSize: 18)),
-                    tooltip: 'Ampliar página derecha',
-                  ),
-                ),
-              ),
-            ),
-            AnimatedPositioned(
-              duration: const Duration(milliseconds: 260),
-              curve: Curves.easeOutBack,
-              top: 76,
               right: 16,
-              child: AnimatedScale(
-                scale: _showZoomPageSelector ? 1.0 : 0.0,
-                duration: const Duration(milliseconds: 260),
-                curve: Curves.easeOutBack,
-                child: AnimatedOpacity(
-                  opacity: _showZoomPageSelector ? 1.0 : 0.0,
-                  duration: const Duration(milliseconds: 260),
-                  child: FloatingActionButton(
-                    mini: true,
-                    heroTag: 'zoomLeftBtn',
-                    backgroundColor: Colors.white,
-                    onPressed: () => _selectZoomPage('left'),
-                    elevation: 4,
-                    child: Text('1',
-                        style: TextStyle(
-                            color: Colors.blue[900],
-                            fontWeight: FontWeight.bold,
-                            fontSize: 18)),
-                    tooltip: 'Ampliar página izquierda',
-                  ),
+              child: AnimatedOpacity(
+                opacity: isEditing ? 1.0 : 0.0,
+                duration: const Duration(milliseconds: 220),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    FloatingActionButton(
+                      mini: true,
+                      heroTag: 'editLeftBtn',
+                      backgroundColor: activeEditSide == 'left'
+                          ? Colors.blue[900]
+                          : Colors.white,
+                      onPressed: () async {
+                        // Si hay un dibujo a medias, guárdalo antes de cambiar
+                        if (widget.documentModel.stateNotifier.value
+                            .drawingPoints.isNotEmpty) {
+                          await widget.documentModel.saveDrawing();
+                        }
+                        setState(() {
+                          widget.documentModel.activeEditSide = 'left';
+                        });
+                      },
+                      elevation: 4,
+                      child: Text('1',
+                          style: TextStyle(
+                              color: activeEditSide == 'left'
+                                  ? Colors.white
+                                  : Colors.blue[900],
+                              fontWeight: FontWeight.bold,
+                              fontSize: 18)),
+                      tooltip: 'Editar página izquierda',
+                    ),
+                    const SizedBox(height: 16),
+                    FloatingActionButton(
+                      mini: true,
+                      heroTag: 'editRightBtn',
+                      backgroundColor: activeEditSide == 'right'
+                          ? Colors.blue[900]
+                          : Colors.white,
+                      onPressed: () async {
+                        if (widget.documentModel.stateNotifier.value
+                            .drawingPoints.isNotEmpty) {
+                          await widget.documentModel.saveDrawing();
+                        }
+                        setState(() {
+                          widget.documentModel.activeEditSide = 'right';
+                        });
+                      },
+                      elevation: 4,
+                      child: Text('2',
+                          style: TextStyle(
+                              color: activeEditSide == 'right'
+                                  ? Colors.white
+                                  : Colors.blue[900],
+                              fontWeight: FontWeight.bold,
+                              fontSize: 18)),
+                      tooltip: 'Editar página derecha',
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -383,9 +396,13 @@ class _PdfPageViewState extends State<PdfPageView> {
     final bool isLastPair = (widget.documentModel.activeBookmarkTo != null &&
             (s.currentPage + 1 >= widget.documentModel.activeBookmarkTo!)) ||
         (s.currentPage + 1 >= s.totalPages);
+    final bool isEditing = widget.isEditing;
+    final String activeEditSide = widget.documentModel.activeEditSide;
     if (s.rightImageBytes == null) {
       // Solo una página, centrarla visualmente en landscape
-      Widget page = _buildLandscapePage(s.leftImageBytes, context);
+      Widget page = isEditing
+          ? _buildEditablePage(context, imageBytes: s.leftImageBytes)
+          : _buildStaticImage(s.leftImageBytes);
       if (_zoomEnabled) {
         page = InteractiveViewer(
           minScale: 1.0,
@@ -403,13 +420,12 @@ class _PdfPageViewState extends State<PdfPageView> {
       );
     }
     // Dos páginas: mostrar ambas lado a lado, cada una con el mismo ancho
-    // Si es la última vista, no repitas la última página en ambos lados
-    final bool isLast = isAtEndLandscape &&
-        (s.currentPage + 1 > s.totalPages ||
-            (widget.documentModel.activeBookmarkTo != null &&
-                s.currentPage + 1 > widget.documentModel.activeBookmarkTo!));
-    Widget leftPage = _buildLandscapePage(s.leftImageBytes, context);
-    Widget rightPage = _buildLandscapePage(s.rightImageBytes, context);
+    Widget leftPage = (isEditing && activeEditSide == 'left')
+        ? _buildEditablePage(context, imageBytes: s.leftImageBytes)
+        : _buildStaticImage(s.leftImageBytes);
+    Widget rightPage = (isEditing && activeEditSide == 'right')
+        ? _buildEditablePage(context, imageBytes: s.rightImageBytes)
+        : _buildStaticImage(s.rightImageBytes);
     if (_zoomEnabled) {
       leftPage = InteractiveViewer(
         minScale: 1.0,
@@ -478,7 +494,7 @@ class _PdfPageViewState extends State<PdfPageView> {
   Widget _buildStaticImage(Uint8List? bytes) {
     return bytes == null
         ? const Center(child: CircularProgressIndicator())
-        : Image.memory(bytes, fit: BoxFit.contain);
+        : _AnimatedFadeInImage(bytes: bytes);
   }
 
   Widget _buildEditablePage(BuildContext context, {Uint8List? imageBytes}) {
@@ -515,7 +531,7 @@ class _PdfPageViewState extends State<PdfPageView> {
                     widget.documentModel.stateNotifier.value.leftImageBytes),
                 CustomPaint(
                   painter: DrawingPainter(
-                      drawingPoints: widget
+                      rects: widget
                           .documentModel.stateNotifier.value.drawingPoints),
                   size: Size(c.maxWidth, c.maxHeight),
                 ),
@@ -524,6 +540,52 @@ class _PdfPageViewState extends State<PdfPageView> {
           ),
         );
       },
+    );
+  }
+}
+
+class _AnimatedFadeInImage extends StatefulWidget {
+  final Uint8List bytes;
+  const _AnimatedFadeInImage({required this.bytes});
+
+  @override
+  State<_AnimatedFadeInImage> createState() => _AnimatedFadeInImageState();
+}
+
+class _AnimatedFadeInImageState extends State<_AnimatedFadeInImage>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _opacity;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 500));
+    _opacity = CurvedAnimation(parent: _controller, curve: Curves.easeIn);
+    _controller.forward();
+  }
+
+  @override
+  void didUpdateWidget(covariant _AnimatedFadeInImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.bytes != widget.bytes) {
+      _controller.reset();
+      _controller.forward();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _opacity,
+      child: Image.memory(widget.bytes, fit: BoxFit.contain),
     );
   }
 }

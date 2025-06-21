@@ -6,6 +6,8 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:music_lector/data/models/drawing_point.dart';
 import 'package:pdfx/pdfx.dart';
 
@@ -57,12 +59,12 @@ class PdfDocumentModel {
   final Map<int, Uint8List> _editedCache = <int, Uint8List>{};
 
   /// Points captured while the user is drawing on the current page
-  List<DrawingPoint> _currentPoints = <DrawingPoint>[];
+  List<DrawingRect> _currentRects = <DrawingRect>[];
 
   /// Current drawing tool configuration
-  double strokeWidth = 3.0;
+  double strokeWidth = 1.0;
   double minStrokeWidth = 1.0;
-  double maxStrokeWidth = 50.0;
+  double maxStrokeWidth = 1.0;
   Color selectedColor = Colors.red;
   DrawingMode drawingMode = DrawingMode.pen;
 
@@ -200,33 +202,62 @@ class PdfDocumentModel {
   // Drawing helpers
   // -------------------------------------------------------------------------
 
+  // Página activa para edición en landscape: 'left' o 'right'
+  String activeEditSide = 'left';
+
+  // Al iniciar un trazo, determina la página activa y agrega el nuevo rectángulo a los existentes de esa página
   void startNewDrawingPoint(Offset localPosition, Size size,
       {double? pressure}) {
-    final DrawingPoint p =
-        _createDrawingPoint(localPosition, size, pressure: pressure);
-    _currentPoints = <DrawingPoint>[p];
-    _state = _state
-        .copyWith(drawingPoints: <DrawingPoint>[..._state.drawingPoints, p]);
+    final Orientation orientation =
+        MediaQueryData.fromView(WidgetsBinding.instance.window).orientation;
+    int leftPage = _state.currentPage;
+    int? rightPage = (orientation == Orientation.landscape &&
+            leftPage + 1 <= _state.totalPages)
+        ? leftPage + 1
+        : null;
+    // Elimina la lógica de auto-selección, solo usa activeEditSide
+    int pageToEdit =
+        (activeEditSide == 'right' && rightPage != null) ? rightPage : leftPage;
+    final Offset start = _transformToImageCoords(localPosition, size);
+    final Paint paint = Paint()
+      ..color = selectedColor
+      ..strokeWidth = strokeWidth
+      ..style = PaintingStyle.stroke
+      ..isAntiAlias = true;
+    _currentRects = <DrawingRect>[
+      DrawingRect(start: start, end: start, paint: paint)
+    ];
+    // Agrega el nuevo rectángulo a los existentes (no borra los anteriores)
+    final List<DrawingRect> currentRects =
+        List<DrawingRect>.from(_state.drawingPoints);
+    currentRects.add(_currentRects.first);
+    _state = _state.copyWith(drawingPoints: currentRects);
   }
 
   void updateDrawingPoint(Offset localPosition, Size size, {double? pressure}) {
-    final DrawingPoint p =
-        _createDrawingPoint(localPosition, size, pressure: pressure);
-    _currentPoints.add(p);
-    _state = _state
-        .copyWith(drawingPoints: <DrawingPoint>[..._state.drawingPoints, p]);
+    if (_currentRects.isEmpty) return;
+    final Offset end = _transformToImageCoords(localPosition, size);
+    final DrawingRect last = _currentRects.first;
+    final DrawingRect updated =
+        DrawingRect(start: last.start, end: end, paint: last.paint);
+    final List<DrawingRect> rects =
+        List<DrawingRect>.from(_state.drawingPoints as List<DrawingRect>);
+    rects[rects.length - 1] = updated;
+    _currentRects[0] = updated;
+    _state = _state.copyWith(drawingPoints: rects);
   }
 
   void undoDrawing() {
-    if (_state.drawingPoints.isNotEmpty) {
-      final List<DrawingPoint> pts =
-          List<DrawingPoint>.from(_state.drawingPoints)..removeLast();
-      _state = _state.copyWith(drawingPoints: pts);
+    if ((_state.drawingPoints as List<DrawingRect>).isNotEmpty) {
+      final List<DrawingRect> rects =
+          List<DrawingRect>.from(_state.drawingPoints as List<DrawingRect>);
+      rects.removeLast();
+      _state = _state.copyWith(drawingPoints: rects);
     }
   }
 
   void clearDrawing() =>
-      _state = _state.copyWith(drawingPoints: <DrawingPoint>[]);
+      _state = _state.copyWith(drawingPoints: <DrawingRect>[]);
 
   void setDrawingMode(DrawingMode mode) {
     drawingMode = mode;
@@ -237,8 +268,7 @@ class PdfDocumentModel {
   }
 
   void setStrokeWidth(double width) {
-    strokeWidth = width.clamp(minStrokeWidth, maxStrokeWidth);
-    stateNotifier.notifyListeners();
+    // No hacer nada, el grosor es fijo
   }
 
   void setColor(Color color) {
@@ -248,38 +278,24 @@ class PdfDocumentModel {
     stateNotifier.notifyListeners();
   }
 
-  /// Permanently rasterise current page drawing into a PNG and cache it
+  // Al guardar, actualiza la imagen renderizada con todos los subrayados
   Future<void> saveDrawing() async {
-    if (!_pageCache.containsKey(_state.currentPage)) return;
-
-    // Merge original page bitmap with drawing overlay
-    final ui.PictureRecorder recorder = ui.PictureRecorder();
-    final Canvas canvas = Canvas(recorder);
-    const Size size = Size(1000, 1400);
-
-    // Original page
-    final ui.Image base =
-        await decodeImageFromList(_pageCache[_state.currentPage]!);
-    canvas.drawImage(base, Offset.zero, Paint());
-
-    // Annotations
-    final DrawingPainter painter =
-        DrawingPainter(drawingPoints: _state.drawingPoints);
-    painter.paint(canvas, size);
-
-    final ui.Picture pic = recorder.endRecording();
-    final ui.Image img =
-        await pic.toImage(size.width.toInt(), size.height.toInt());
-    final ByteData? data = await img.toByteData(format: ui.ImageByteFormat.png);
-    if (data == null) return;
-
-    final Uint8List png = data.buffer.asUint8List();
-    _editedCache[_state.currentPage] = png;
-    _pageCache[_state.currentPage] =
-        png; // overwrite cache so navigation is instant
-
-    saveDrawingForPage(_state.currentPage, _state.drawingPoints);
-    _state = _state.copyWith(isEditing: false, drawingPoints: <DrawingPoint>[]);
+    final Orientation orientation =
+        MediaQueryData.fromView(WidgetsBinding.instance.window).orientation;
+    int leftPage = _state.currentPage;
+    int? rightPage = (orientation == Orientation.landscape &&
+            leftPage + 1 <= _state.totalPages)
+        ? leftPage + 1
+        : null;
+    int pageToSave =
+        (activeEditSide == 'right' && rightPage != null) ? rightPage : leftPage;
+    saveDrawingForPage(pageToSave, _state.drawingPoints as List<DrawingRect>);
+    // Limpiar los subrayados en edición y cargar los de la nueva página activa
+    int pageToEdit =
+        (activeEditSide == 'right' && rightPage != null) ? rightPage : leftPage;
+    List<DrawingRect> newRects = getDrawingForPage(pageToEdit);
+    _state = _state.copyWith(drawingPoints: newRects);
+    await _renderVisiblePagesCustom(leftPage, rightPage ?? -1);
   }
 
   /// Dispose resources
@@ -296,20 +312,34 @@ class PdfDocumentModel {
   // Internal helpers
   // -------------------------------------------------------------------------
 
+  // Al cambiar de página, siempre actualiza la imagen con los subrayados guardados
   Future<void> _goToPageInternal(int page) async {
-    // Auto‑save drawing if user forgets
-    if (_state.isEditing && _state.drawingPoints.isNotEmpty) {
-      await saveDrawing();
-    }
     final Orientation orientation =
         MediaQueryData.fromView(WidgetsBinding.instance.window).orientation;
+    int leftPage = _state.currentPage;
+    int? rightPage = (orientation == Orientation.landscape &&
+            leftPage + 1 <= _state.totalPages)
+        ? leftPage + 1
+        : null;
+    if (_state.isEditing && _state.drawingPoints.isNotEmpty) {
+      int pageToSave = (activeEditSide == 'right' && rightPage != null)
+          ? rightPage
+          : leftPage;
+      saveDrawingForPage(pageToSave, _state.drawingPoints as List<DrawingRect>);
+    }
     int minPage = _activeBookmarkFrom ?? 1;
     int maxPage = _activeBookmarkTo ?? _state.totalPages;
     int left = max(1, page.clamp(minPage, maxPage));
     int right =
         orientation == Orientation.landscape && left < maxPage ? left + 1 : -1;
-    _state =
-        _state.copyWith(currentPage: left, previewPage: left, isSliding: false);
+    activeEditSide = 'left';
+    List<DrawingRect> drawingRects = getDrawingForPage(left);
+    _state = _state.copyWith(
+      currentPage: left,
+      previewPage: left,
+      isSliding: false,
+      drawingPoints: drawingRects,
+    );
     await _renderVisiblePagesCustom(left, right);
     await _renderPreview(left);
   }
@@ -337,13 +367,67 @@ class PdfDocumentModel {
     } else {
       rightBytes = null;
     }
-    // Extract edited version if available
     final Uint8List? leftBytes =
         _editedCache[leftIndex] ?? _pageCache[leftIndex];
+
+    // --- CORRECCIÓN DE PREVISUALIZACIÓN EN EDICIÓN ---
+    if (_state.isEditing) {
+      // Solo la página activa muestra los subrayados actuales
+      int pageToEdit = leftIndex;
+      if (activeEditSide == 'right' && rightIndex != -1) {
+        pageToEdit = rightIndex;
+      }
+      final leftRects = (pageToEdit == leftIndex)
+          ? _state.drawingPoints
+          : getDrawingForPage(leftIndex);
+      final rightRects = (pageToEdit == rightIndex)
+          ? _state.drawingPoints
+          : getDrawingForPage(rightIndex);
+      final leftImageWithRects =
+          await _overlayRectsOnImage(leftBytes, leftRects);
+      Uint8List? rightImageWithRects;
+      if (rightBytes != null) {
+        rightImageWithRects =
+            await _overlayRectsOnImage(rightBytes, rightRects);
+      }
+      _state = _state.copyWith(
+        leftImageBytes: leftImageWithRects,
+        rightImageBytes: rightImageWithRects,
+      );
+      return;
+    }
+    // Render normal (subrayados guardados)
+    final leftRects = getDrawingForPage(leftIndex);
+    final rightRects =
+        rightIndex != -1 ? getDrawingForPage(rightIndex) : <DrawingRect>[];
+    final leftImageWithRects = await _overlayRectsOnImage(leftBytes, leftRects);
+    Uint8List? rightImageWithRects;
+    if (rightBytes != null) {
+      rightImageWithRects = await _overlayRectsOnImage(rightBytes, rightRects);
+    }
     _state = _state.copyWith(
-      leftImageBytes: leftBytes,
-      rightImageBytes: rightBytes,
+      leftImageBytes: leftImageWithRects,
+      rightImageBytes: rightImageWithRects,
     );
+  }
+
+  // Helper para superponer los subrayados sobre la imagen de la página
+  Future<Uint8List> _overlayRectsOnImage(
+      Uint8List? baseBytes, List<DrawingRect> rects) async {
+    if (baseBytes == null) return Uint8List(0);
+    final ui.PictureRecorder recorder = ui.PictureRecorder();
+    final Canvas canvas = Canvas(recorder);
+    const Size size = Size(1000, 1400);
+    final ui.Image base = await decodeImageFromList(baseBytes);
+    canvas.drawImage(base, Offset.zero, Paint());
+    final DrawingPainter painter = DrawingPainter(rects: rects);
+    painter.paint(canvas, size);
+    final ui.Picture pic = recorder.endRecording();
+    final ui.Image img =
+        await pic.toImage(size.width.toInt(), size.height.toInt());
+    final ByteData? data = await img.toByteData(format: ui.ImageByteFormat.png);
+    if (data == null) return baseBytes;
+    return data.buffer.asUint8List();
   }
 
   /// Force re-render of the current visible page(s) – useful after orientation change
@@ -414,67 +498,6 @@ class PdfDocumentModel {
     }
   }
 
-  // -------------------------------------------------------------------------
-  // Helper: drawing point creation & coordinate transform
-  // -------------------------------------------------------------------------
-
-  DrawingPoint _createDrawingPoint(Offset local, Size size,
-      {double? pressure}) {
-    final Offset relative = _transformToImageCoords(local, size);
-    final double p = pressure ?? 1.0;
-    final double widthFactor = drawingMode == DrawingMode.eraser ? 0.8 : 1.0;
-
-    return DrawingPoint(
-      relativePoint: relative,
-      paint: Paint()
-        ..color = selectedColor
-        ..strokeWidth = _calculateStrokeWidth(p) * widthFactor
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round
-        ..style = PaintingStyle.stroke
-        ..isAntiAlias = true,
-    );
-  }
-
-  double _calculateStrokeWidth(double pressure) {
-    final double adj = pressure.clamp(0.1, 1.0);
-    return minStrokeWidth + (strokeWidth - minStrokeWidth) * (adj * adj);
-  }
-
-  Offset _transformToImageCoords(Offset local, Size size) {
-    const double imgW = 1000.0;
-    const double imgH = 1400.0;
-    final double widgetAspect = size.width / size.height;
-    final double imgAspect = imgW / imgH;
-
-    double scale, dx = 0, dy = 0;
-    if (widgetAspect > imgAspect) {
-      scale = size.height / imgH;
-      dx = (size.width - imgW * scale) / 2;
-    } else {
-      scale = size.width / imgW;
-      dy = (size.height - imgH * scale) / 2;
-    }
-    final double x = ((local.dx - dx) / (imgW * scale)).clamp(0.0, 1.0);
-    final double y = ((local.dy - dy) / (imgH * scale)).clamp(0.0, 1.0);
-    return Offset(x, y);
-  }
-
-  Future<void> _loadConfig() async {
-    final file = File(_configPath);
-    if (await file.exists()) {
-      final jsonStr = await file.readAsString();
-      pdfConfig = PdfConfig.fromJson(json.decode(jsonStr));
-    } else {
-      pdfConfig = PdfConfig(bookmarks: [], drawings: {});
-    }
-  }
-
-  Future<void> saveConfig() async {
-    final file = File(_configPath);
-    await file.writeAsString(json.encode(pdfConfig.toJson()));
-  }
-
   // Marcadores
   List<PdfBookmark> get bookmarks => pdfConfig.bookmarks;
   void addBookmark(String name, int page) {
@@ -511,13 +534,13 @@ class PdfDocumentModel {
   }
 
   // Dibujos por página
-  void saveDrawingForPage(int page, List<DrawingPoint> points) {
-    pdfConfig.drawings[page] = points;
-    saveConfig();
+  void saveDrawingForPage(int page, List<DrawingRect> rects) {
+    pdfConfig.drawings[page] = rects;
+    saveC();
   }
 
-  List<DrawingPoint> getDrawingForPage(int page) {
-    return pdfConfig.drawings[page] ?? [];
+  List<DrawingRect> getDrawingForPage(int page) {
+    return (pdfConfig.drawings[page] as List<DrawingRect>?) ?? [];
   }
 
   int? _activeBookmarkFrom;
@@ -542,6 +565,31 @@ class PdfDocumentModel {
   void setLandscapeStep(int step) {
     _landscapeStep = step;
   }
+
+  // Carga la configuración del PDF (bookmarks y dibujos)
+  Future<void> _loadConfig() async {
+    final file = File(_configPath);
+    if (await file.exists()) {
+      final jsonStr = await file.readAsString();
+      pdfConfig = PdfConfig.fromJson(json.decode(jsonStr));
+    } else {
+      pdfConfig = PdfConfig(bookmarks: [], drawings: {});
+    }
+  }
+
+  // Guarda la configuración (bookmarks y dibujos)
+  void saveConfig() {
+    final file = File(_configPath);
+    file.writeAsStringSync(json.encode(pdfConfig.toJson()));
+  }
+
+  // Alias para compatibilidad
+  void saveC() => saveConfig();
+
+  // Convierte la posición local a coordenadas relativas (0..1)
+  Offset _transformToImageCoords(Offset local, Size size) {
+    return Offset(local.dx / size.width, local.dy / size.height);
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -559,7 +607,7 @@ class PdfViewerState {
     this.isSliding = false,
     this.toolbarAlignment = Alignment.topCenter,
     this.previewImageBytes,
-    this.drawingPoints = const <DrawingPoint>[],
+    this.drawingPoints = const <DrawingRect>[],
     this.leftImageBytes,
     this.rightImageBytes,
   })  : currentPage = currentPage < 1 ? 1 : currentPage,
@@ -575,7 +623,7 @@ class PdfViewerState {
   final bool isSliding;
   final Alignment toolbarAlignment;
   final Uint8List? previewImageBytes;
-  final List<DrawingPoint> drawingPoints;
+  final List<DrawingRect> drawingPoints;
   final Uint8List? leftImageBytes;
   final Uint8List? rightImageBytes;
 
@@ -589,7 +637,7 @@ class PdfViewerState {
     bool? isSliding,
     Alignment? toolbarAlignment,
     Uint8List? previewImageBytes,
-    List<DrawingPoint>? drawingPoints,
+    List<DrawingRect>? drawingPoints,
     Uint8List? leftImageBytes,
     Uint8List? rightImageBytes,
   }) {
@@ -632,7 +680,7 @@ class PdfBookmark {
 
 class PdfConfig {
   List<PdfBookmark> bookmarks;
-  Map<int, List<DrawingPoint>> drawings;
+  Map<int, List<DrawingRect>> drawings;
 
   PdfConfig({required this.bookmarks, required this.drawings});
 
@@ -648,7 +696,7 @@ class PdfConfig {
             .toList(),
         drawings: (json['drawings'] as Map<String, dynamic>).map(
           (k, v) => MapEntry(int.parse(k),
-              (v as List).map((p) => DrawingPoint.fromJson(p)).toList()),
+              (v as List).map((p) => DrawingRect.fromJson(p)).toList()),
         ),
       );
 }

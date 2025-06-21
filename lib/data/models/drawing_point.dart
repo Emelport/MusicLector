@@ -1,102 +1,51 @@
 import 'package:flutter/material.dart';
 
-class DrawingPoint {
-  final Offset relativePoint; // x,y en rango 0..1
+class DrawingRect {
+  final Offset start; // relativo 0..1
+  final Offset end; // relativo 0..1
   final Paint paint;
-  final DateTime time;
-
-  DrawingPoint({
-    required this.relativePoint,
-    required this.paint,
-    DateTime? time,
-  }) : time = time ?? DateTime.now();
+  DrawingRect({required this.start, required this.end, required this.paint});
 
   Map<String, dynamic> toJson() => {
-        'relativePoint': {'dx': relativePoint.dx, 'dy': relativePoint.dy},
+        'start': {'dx': start.dx, 'dy': start.dy},
+        'end': {'dx': end.dx, 'dy': end.dy},
         'color': paint.color.value,
         'strokeWidth': paint.strokeWidth,
-        'time': time.millisecondsSinceEpoch,
       };
 
-  factory DrawingPoint.fromJson(Map<String, dynamic> json) => DrawingPoint(
-        relativePoint: Offset(
-          (json['relativePoint']['dx'] as num).toDouble(),
-          (json['relativePoint']['dy'] as num).toDouble(),
+  factory DrawingRect.fromJson(Map<String, dynamic> json) => DrawingRect(
+        start: Offset(
+          (json['start']['dx'] as num).toDouble(),
+          (json['start']['dy'] as num).toDouble(),
+        ),
+        end: Offset(
+          (json['end']['dx'] as num).toDouble(),
+          (json['end']['dy'] as num).toDouble(),
         ),
         paint: Paint()
           ..color = Color(json['color'])
           ..strokeWidth = (json['strokeWidth'] as num).toDouble()
-          ..strokeCap = StrokeCap.round
-          ..strokeJoin = StrokeJoin.round
           ..style = PaintingStyle.stroke
           ..isAntiAlias = true,
-        time: DateTime.fromMillisecondsSinceEpoch(json['time'] as int),
       );
 }
 
 class DrawingPainter extends CustomPainter {
-  final List<DrawingPoint> drawingPoints;
-
-  DrawingPainter({required this.drawingPoints});
+  final List<DrawingRect> rects;
+  DrawingPainter({required this.rects});
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (drawingPoints.isEmpty) return;
-
-    // Agrupa los puntos por trazos continuos
-    List<List<DrawingPoint>> strokes = [];
-    List<DrawingPoint> currentStroke = [];
-
-    for (int i = 0; i < drawingPoints.length; i++) {
-      if (i == 0 ||
-          drawingPoints[i]
-                  .time
-                  .difference(drawingPoints[i - 1].time)
-                  .inMilliseconds >
-              100) {
-        if (currentStroke.isNotEmpty) {
-          strokes.add(List.from(currentStroke));
-          currentStroke.clear();
-        }
-      }
-      currentStroke.add(drawingPoints[i]);
-    }
-    if (currentStroke.isNotEmpty) {
-      strokes.add(currentStroke);
-    }
-
-    // Dibuja cada trazo
-    for (final stroke in strokes) {
-      if (stroke.isEmpty) continue;
-
-      final path = Path();
-      final firstPoint = stroke.first;
-      path.moveTo(
-        firstPoint.relativePoint.dx * size.width,
-        firstPoint.relativePoint.dy * size.height,
+    for (final rect in rects) {
+      final r = Rect.fromPoints(
+        Offset(rect.start.dx * size.width, rect.start.dy * size.height),
+        Offset(rect.end.dx * size.width, rect.end.dy * size.height),
       );
-
-      for (int i = 1; i < stroke.length; i++) {
-        final point = stroke[i];
-        path.lineTo(
-          point.relativePoint.dx * size.width,
-          point.relativePoint.dy * size.height,
-        );
-      }
-
-      canvas.drawPath(path, stroke.first.paint);
-
-      // Dibuja un círculo en el último punto para mejor apariencia
-      if (stroke.length == 1) {
-        canvas.drawCircle(
-          Offset(
-            stroke.first.relativePoint.dx * size.width,
-            stroke.first.relativePoint.dy * size.height,
-          ),
-          stroke.first.paint.strokeWidth / 2,
-          stroke.first.paint,
-        );
-      }
+      final fillPaint = Paint()
+        ..color = rect.paint.color.withOpacity(0.25)
+        ..style = PaintingStyle.fill;
+      canvas.drawRect(r, fillPaint);
+      canvas.drawRect(r, rect.paint);
     }
   }
 

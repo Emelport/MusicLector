@@ -4,7 +4,7 @@ import 'package:music_lector/data/models/pdf_documents.dart';
 
 class PdfEditorTools extends StatelessWidget {
   final PdfDocumentModel documentModel;
-  final List<DrawingPoint> drawingPoints;
+  final List<DrawingRect> drawingPoints;
   final VoidCallback? onExitEdit;
 
   const PdfEditorTools({
@@ -43,16 +43,6 @@ class PdfEditorTools extends StatelessWidget {
                     Row(
                       children: [
                         _buildToolButton(
-                          icon: Icons.brush,
-                          isSelected:
-                              documentModel.drawingMode == DrawingMode.pen,
-                          onPressed: () {
-                            documentModel.setDrawingMode(DrawingMode.pen);
-                            documentModel.stateNotifier.notifyListeners();
-                          },
-                          tooltip: "Lápiz",
-                        ),
-                        _buildToolButton(
                           icon: Icons.highlight,
                           isSelected: documentModel.drawingMode ==
                               DrawingMode.highlighter,
@@ -62,16 +52,6 @@ class PdfEditorTools extends StatelessWidget {
                             documentModel.stateNotifier.notifyListeners();
                           },
                           tooltip: "Resaltador",
-                        ),
-                        _buildToolButton(
-                          icon: Icons.auto_fix_high,
-                          isSelected:
-                              documentModel.drawingMode == DrawingMode.eraser,
-                          onPressed: () {
-                            documentModel.setDrawingMode(DrawingMode.eraser);
-                            documentModel.stateNotifier.notifyListeners();
-                          },
-                          tooltip: "Borrador",
                         ),
                       ],
                     ),
@@ -148,36 +128,6 @@ class PdfEditorTools extends StatelessWidget {
                     ),
                     const SizedBox(width: 16),
                     // Stroke width
-                    SizedBox(
-                      width: 150,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            'Grosor: ${documentModel.strokeWidth.toStringAsFixed(1)}',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey.shade700,
-                            ),
-                          ),
-                          Slider(
-                            value: documentModel.strokeWidth,
-                            min: 1,
-                            max: 50,
-                            divisions: 49,
-                            onChanged: (value) {
-                              documentModel.setStrokeWidth(value);
-                              documentModel.stateNotifier.notifyListeners();
-                            },
-                            activeColor:
-                                documentModel.drawingMode == DrawingMode.eraser
-                                    ? Colors.grey
-                                    : Colors.blue.shade900,
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 16),
                     // Action buttons
                     Row(
                       children: [

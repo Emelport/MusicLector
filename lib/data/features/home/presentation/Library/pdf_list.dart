@@ -1,13 +1,13 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:music_lector/data/models/drawing_point.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:music_lector/data/repositories/file_repository.dart';
 import 'package:music_lector/data/models/file.dart';
 import 'package:music_lector/core/events/file_events.dart';
 import 'package:music_lector/core/utils/snackbar_utils.dart';
+import 'package:music_lector/data/models/drawing_point.dart';
 
 class PdfLastViewed {
   static Future<void> saveLastPage(String filePath, int page) async {
@@ -41,7 +41,7 @@ class PdfBookmark {
 
 class PdfConfig {
   List<PdfBookmark> bookmarks;
-  Map<int, List<DrawingPoint>> drawings;
+  Map<int, List<DrawingRect>> drawings;
 
   PdfConfig({required this.bookmarks, required this.drawings});
 
@@ -57,7 +57,7 @@ class PdfConfig {
             .toList(),
         drawings: (json['drawings'] as Map<String, dynamic>).map(
           (k, v) => MapEntry(int.parse(k),
-              (v as List).map((p) => DrawingPoint.fromJson(p)).toList()),
+              (v as List).map((p) => DrawingRect.fromJson(p)).toList()),
         ),
       );
 }

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:music_lector/data/models/pdf_documents.dart';
 import '../data/models/drawing_point.dart';
+import 'package:flutter/foundation.dart';
 
 class PdfPageView extends StatefulWidget {
   const PdfPageView({
@@ -22,12 +23,12 @@ class PdfPageView extends StatefulWidget {
 }
 
 class _PdfPageViewState extends State<PdfPageView> {
-  double _zoom = 1.0;
-  bool _zoomEnabled = false;
   late int _lastPage;
-  bool _landscapeStepOne = true; // true: avanzar de 1 en 1, false: de 2 en 2
-  bool _showZoomPageSelector = false;
-  String _zoomPageSide = 'left'; // 'left' o 'right'
+  bool _landscapeStepOne = true;
+  TransformationController _transformationController =
+      TransformationController();
+  bool _showControls = true;
+  bool _isZooming = false;
 
   @override
   void initState() {
@@ -39,6 +40,7 @@ class _PdfPageViewState extends State<PdfPageView> {
   @override
   void dispose() {
     widget.documentModel.stateNotifier.removeListener(_onPageChange);
+    _transformationController.dispose();
     super.dispose();
   }
 
@@ -46,38 +48,16 @@ class _PdfPageViewState extends State<PdfPageView> {
     final currentPage = widget.documentModel.stateNotifier.value.currentPage;
     if (currentPage != _lastPage) {
       setState(() {
-        _zoom = 1.0;
-        _zoomEnabled = false;
+        _transformationController.value = Matrix4.identity();
         _lastPage = currentPage;
+        _isZooming = false;
+        _showControls = true;
       });
     }
   }
 
-  void _toggleZoom() {
-    final Orientation orientation = MediaQuery.of(context).orientation;
-    final PdfViewerState state = widget.documentModel.stateNotifier.value;
-    final bool isLandscape = orientation == Orientation.landscape;
-    final bool hasRightPage = state.rightImageBytes != null;
-    setState(() {
-      if (!_zoomEnabled && isLandscape && hasRightPage) {
-        // Mostrar selectores de página
-        _showZoomPageSelector = true;
-      } else {
-        _zoomEnabled = !_zoomEnabled;
-        if (!_zoomEnabled) {
-          _zoom = 1.0;
-          _showZoomPageSelector = false;
-        }
-      }
-    });
-  }
-
-  void _selectZoomPage(String side) {
-    setState(() {
-      _zoomPageSide = side;
-      _zoomEnabled = true;
-      _showZoomPageSelector = false;
-    });
+  bool _isZoomed() {
+    return _transformationController.value != Matrix4.identity();
   }
 
   void _toggleLandscapeStep() {
@@ -85,6 +65,14 @@ class _PdfPageViewState extends State<PdfPageView> {
       _landscapeStepOne = !_landscapeStepOne;
     });
     widget.documentModel.setLandscapeStep(_landscapeStepOne ? 1 : 2);
+  }
+
+  void _resetZoom() {
+    setState(() {
+      _transformationController.value = Matrix4.identity();
+      _isZooming = false;
+      _showControls = true;
+    });
   }
 
   @override
@@ -97,22 +85,36 @@ class _PdfPageViewState extends State<PdfPageView> {
     final bool isAtEndLandscape = isLandscape &&
         (state.currentPage + 1 >=
             (widget.documentModel.activeBookmarkTo ?? state.totalPages));
-    final bool hasRightPage = state.rightImageBytes != null;
     final bool isEditing = widget.isEditing;
     final String activeEditSide = widget.documentModel.activeEditSide;
 
-    return Focus(
+    // Configuración de TouchBar
+    if (defaultTargetPlatform == TargetPlatform.macOS) {
+      HardwareKeyboard.instance.addHandler((KeyEvent event) {
+        if (event is KeyDownEvent && _isZoomed()) {
+          if (event.logicalKey == LogicalKeyboardKey.escape) {
+            _resetZoom();
+            return true;
+          }
+        }
+        return false;
+      });
+    }
+
+    Widget content = Focus(
       autofocus: true,
       onKeyEvent: (FocusNode node, KeyEvent event) {
-        if (event is KeyDownEvent) {
+        if (event is KeyDownEvent && !_isZooming) {
           if (event.logicalKey == LogicalKeyboardKey.arrowRight &&
-              !isAtEndLandscape &&
-              !_zoomEnabled) {
+              !isAtEndLandscape) {
             widget.documentModel.nextPage();
             return KeyEventResult.handled;
-          } else if (event.logicalKey == LogicalKeyboardKey.arrowLeft &&
-              !_zoomEnabled) {
+          } else if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
             widget.documentModel.previousPage();
+            return KeyEventResult.handled;
+          } else if (event.logicalKey == LogicalKeyboardKey.escape &&
+              _isZoomed()) {
+            _resetZoom();
             return KeyEventResult.handled;
           }
         }
@@ -120,25 +122,38 @@ class _PdfPageViewState extends State<PdfPageView> {
       },
       child: Stack(
         children: <Widget>[
-          // Si el zoom está activado, solo mostrar una página y permitir pinch-to-zoom
-          if (_zoomEnabled)
-            Center(
-              child: _buildZoomableSinglePage(context),
-            )
-          else
-            GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTapDown: (TapDownDetails d) => _handleTapDown(d, screenSize),
-              onVerticalDragEnd: _handleVerticalDragEnd,
-              child: Center(
-                child: isPortrait
-                    ? _buildPortraitView(context)
-                    : _buildLandscapeView(context,
-                        isAtEndLandscape: isAtEndLandscape),
-              ),
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () {
+              if (_isZoomed()) {
+                _resetZoom();
+              } else if (widget.onToggleControls != null) {
+                widget.onToggleControls!();
+              }
+            },
+            onDoubleTap: () {
+              if (_isZoomed()) {
+                _resetZoom();
+              } else {
+                setState(() {
+                  _transformationController.value =
+                      Matrix4.diagonal3Values(2.0, 2.0, 1.0);
+                  _isZooming = true;
+                  _showControls = false;
+                });
+              }
+            },
+            onVerticalDragEnd: _handleVerticalDragEnd,
+            child: Center(
+              child: isPortrait
+                  ? _buildPortraitView(context)
+                  : _buildLandscapeView(context,
+                      isAtEndLandscape: isAtEndLandscape),
             ),
-          // ← arrow
-          if (!_zoomEnabled)
+          ),
+          // Controles de navegación (solo visibles sin zoom)
+          if (_showControls && !_isZooming) ...[
+            // ← arrow
             Positioned(
               left: 8,
               top: 0,
@@ -151,8 +166,7 @@ class _PdfPageViewState extends State<PdfPageView> {
                 ),
               ),
             ),
-          // → arrow
-          if (!_zoomEnabled)
+            // → arrow
             Positioned(
               right: 8,
               top: 0,
@@ -168,32 +182,12 @@ class _PdfPageViewState extends State<PdfPageView> {
                 ),
               ),
             ),
-          // Botón de zoom
-          Positioned(
-            top: 16,
-            right: 16,
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                borderRadius: BorderRadius.circular(28),
-                onTap: _toggleZoom,
-                child: FloatingActionButton(
-                  mini: true,
-                  heroTag: 'zoomBtn',
-                  backgroundColor: Colors.white,
-                  onPressed: _toggleZoom,
-                  elevation: 4,
-                  child: Icon(
-                    _zoomEnabled ? Icons.zoom_out_map : Icons.zoom_in,
-                    color: Colors.blue[900],
-                  ),
-                  tooltip: _zoomEnabled ? 'Desactivar zoom' : 'Activar zoom',
-                ),
-              ),
-            ),
-          ),
+          ],
           // FABs de selección de página para edición en landscape
-          if (isLandscape && isEditing && hasRightPage) ...[
+          if (_showControls &&
+              isLandscape &&
+              isEditing &&
+              state.rightImageBytes != null) ...[
             AnimatedPositioned(
               duration: const Duration(milliseconds: 220),
               curve: Curves.easeOutBack,
@@ -212,7 +206,6 @@ class _PdfPageViewState extends State<PdfPageView> {
                           ? Colors.blue[900]
                           : Colors.white,
                       onPressed: () async {
-                        // Si hay un dibujo a medias, guárdalo antes de cambiar
                         if (widget.documentModel.stateNotifier.value
                             .drawingPoints.isNotEmpty) {
                           await widget.documentModel.saveDrawing();
@@ -263,7 +256,7 @@ class _PdfPageViewState extends State<PdfPageView> {
             ),
           ],
           // Botón de modo landscape: paso 1 o 2
-          if (!isPortrait && !_zoomEnabled)
+          if (_showControls && !isPortrait && !_isZooming)
             Positioned(
               top: 16,
               left: 16,
@@ -289,38 +282,64 @@ class _PdfPageViewState extends State<PdfPageView> {
                 ),
               ),
             ),
+          // Botón para salir del zoom (solo visible cuando hay zoom)
+          if (_isZoomed())
+            Positioned(
+              top: 16,
+              right: 16,
+              child: FloatingActionButton(
+                mini: true,
+                heroTag: 'exitZoomBtn',
+                backgroundColor: Colors.white,
+                onPressed: _resetZoom,
+                elevation: 4,
+                child: Icon(
+                  Icons.fullscreen_exit,
+                  color: Colors.blue[900],
+                ),
+                tooltip: 'Salir del zoom',
+              ),
+            ),
         ],
       ),
     );
-  }
 
-  // NUEVO: Widget para mostrar solo una página con zoom interactivo
-  Widget _buildZoomableSinglePage(BuildContext context) {
-    final PdfViewerState state = widget.documentModel.stateNotifier.value;
-    Widget page;
-    if (_zoomPageSide == 'right' && state.rightImageBytes != null) {
-      page = _buildStaticImage(state.rightImageBytes);
-    } else {
-      page = widget.isEditing
-          ? _buildEditablePage(context)
-          : _buildStaticImage(state.leftImageBytes);
-    }
-    return SizedBox.expand(
+    return GestureDetector(
+      onScaleStart: (details) {
+        setState(() {
+          _isZooming = true;
+          _showControls = false;
+        });
+      },
+      onScaleEnd: (details) {
+        if (_transformationController.value == Matrix4.identity()) {
+          setState(() {
+            _isZooming = false;
+            _showControls = true;
+          });
+        }
+      },
       child: InteractiveViewer(
-        minScale: 1.0,
+        transformationController: _transformationController,
+        minScale: 0.8,
         maxScale: 4.0,
-        scaleEnabled: true,
-        panEnabled: true,
-        child: page,
+        boundaryMargin: EdgeInsets.all(20),
+        panEnabled: !isEditing, // Deshabilitar pan durante la edición
+        onInteractionEnd: (details) {
+          if (_transformationController.value == Matrix4.identity()) {
+            setState(() {
+              _isZooming = false;
+              _showControls = true;
+            });
+          }
+        },
+        child: content,
       ),
     );
   }
 
-  // -------------------------------------------------------------------------
-  // Interaction helpers
-  // -------------------------------------------------------------------------
   void _handleTapDown(TapDownDetails details, Size screenSize) {
-    if (widget.isEditing) return;
+    if (widget.isEditing || _isZooming) return;
     final double dx = details.localPosition.dx;
     final double w = screenSize.width;
 
@@ -328,39 +347,27 @@ class _PdfPageViewState extends State<PdfPageView> {
       widget.documentModel.nextPage();
     } else if (dx < w * 0.3) {
       widget.documentModel.previousPage();
-    } else {
-      if (widget.onToggleControls != null) {
-        widget.onToggleControls!();
-      }
     }
   }
 
   void _handleVerticalDragEnd(DragEndDetails details) {
-    if (details.primaryVelocity != null && details.primaryVelocity! > 400) {
+    if (!_isZooming &&
+        details.primaryVelocity != null &&
+        details.primaryVelocity! > 400) {
       widget.documentModel.toggleSlider(false);
     }
   }
 
-  // -------------------------------------------------------------------------
-  // Layout helpers
-  // -------------------------------------------------------------------------
   Widget _buildPortraitView(BuildContext context) {
     final PdfViewerState state = widget.documentModel.stateNotifier.value;
     final bool isLastPage = state.currentPage == state.totalPages ||
         (widget.documentModel.activeBookmarkTo != null &&
             state.currentPage == widget.documentModel.activeBookmarkTo);
+
     Widget page = widget.isEditing
         ? _buildEditablePage(context)
         : _buildStaticImage(state.leftImageBytes);
-    if (_zoomEnabled) {
-      page = InteractiveViewer(
-        minScale: 1.0,
-        maxScale: 4.0,
-        scaleEnabled: true,
-        panEnabled: true,
-        child: page,
-      );
-    }
+
     return AspectRatio(
       aspectRatio: 1000 / 1400,
       child: Stack(
@@ -398,20 +405,12 @@ class _PdfPageViewState extends State<PdfPageView> {
         (s.currentPage + 1 >= s.totalPages);
     final bool isEditing = widget.isEditing;
     final String activeEditSide = widget.documentModel.activeEditSide;
+
     if (s.rightImageBytes == null) {
-      // Solo una página, centrarla visualmente en landscape
       Widget page = isEditing
           ? _buildEditablePage(context, imageBytes: s.leftImageBytes)
           : _buildStaticImage(s.leftImageBytes);
-      if (_zoomEnabled) {
-        page = InteractiveViewer(
-          minScale: 1.0,
-          maxScale: 4.0,
-          scaleEnabled: true,
-          panEnabled: true,
-          child: page,
-        );
-      }
+
       return Center(
         child: SizedBox(
           width: 420,
@@ -419,29 +418,14 @@ class _PdfPageViewState extends State<PdfPageView> {
         ),
       );
     }
-    // Dos páginas: mostrar ambas lado a lado, cada una con el mismo ancho
+
     Widget leftPage = (isEditing && activeEditSide == 'left')
         ? _buildEditablePage(context, imageBytes: s.leftImageBytes)
         : _buildStaticImage(s.leftImageBytes);
     Widget rightPage = (isEditing && activeEditSide == 'right')
         ? _buildEditablePage(context, imageBytes: s.rightImageBytes)
         : _buildStaticImage(s.rightImageBytes);
-    if (_zoomEnabled) {
-      leftPage = InteractiveViewer(
-        minScale: 1.0,
-        maxScale: 4.0,
-        scaleEnabled: true,
-        panEnabled: true,
-        child: leftPage,
-      );
-      rightPage = InteractiveViewer(
-        minScale: 1.0,
-        maxScale: 4.0,
-        scaleEnabled: true,
-        panEnabled: true,
-        child: rightPage,
-      );
-    }
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       mainAxisSize: MainAxisSize.max,
@@ -482,15 +466,6 @@ class _PdfPageViewState extends State<PdfPageView> {
     );
   }
 
-  Widget _buildLandscapePage(Uint8List? bytes, BuildContext context) {
-    return AspectRatio(
-      aspectRatio: 1000 / 1400,
-      child: widget.isEditing
-          ? _buildEditablePage(context, imageBytes: bytes)
-          : _buildStaticImage(bytes),
-    );
-  }
-
   Widget _buildStaticImage(Uint8List? bytes) {
     return bytes == null
         ? const Center(child: CircularProgressIndicator())
@@ -518,12 +493,18 @@ class _PdfPageViewState extends State<PdfPageView> {
             }
           },
           child: GestureDetector(
-            onPanStart: (DragStartDetails d) => widget.documentModel
-                .startNewDrawingPoint(
-                    d.localPosition, Size(c.maxWidth, c.maxHeight)),
-            onPanUpdate: (DragUpdateDetails d) => widget.documentModel
-                .updateDrawingPoint(
-                    d.localPosition, Size(c.maxWidth, c.maxHeight)),
+            onPanStart: (DragStartDetails d) {
+              if (!_isZooming) {
+                widget.documentModel.startNewDrawingPoint(
+                    d.localPosition, Size(c.maxWidth, c.maxHeight));
+              }
+            },
+            onPanUpdate: (DragUpdateDetails d) {
+              if (!_isZooming) {
+                widget.documentModel.updateDrawingPoint(
+                    d.localPosition, Size(c.maxWidth, c.maxHeight));
+              }
+            },
             child: Stack(
               fit: StackFit.expand,
               children: <Widget>[

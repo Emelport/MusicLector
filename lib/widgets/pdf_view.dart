@@ -2,9 +2,9 @@ import 'dart:typed_data';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 import 'package:music_lector/data/models/pdf_documents.dart';
 import '../data/models/drawing_point.dart';
-import 'package:flutter/foundation.dart';
 
 class PdfPageView extends StatefulWidget {
   const PdfPageView({
@@ -25,10 +25,11 @@ class PdfPageView extends StatefulWidget {
 class _PdfPageViewState extends State<PdfPageView> {
   late int _lastPage;
   bool _landscapeStepOne = true;
-  TransformationController _transformationController =
-      TransformationController();
+  TransformationController _transformationController = TransformationController();
   bool _showControls = true;
   bool _isZooming = false;
+  bool _isChangingPage = false;
+  DateTime? _lastPageChangeTime;
 
   @override
   void initState() {
@@ -45,6 +46,8 @@ class _PdfPageViewState extends State<PdfPageView> {
   }
 
   void _onPageChange() {
+    if (!mounted) return;
+    
     final currentPage = widget.documentModel.stateNotifier.value.currentPage;
     if (currentPage != _lastPage) {
       setState(() {
@@ -52,6 +55,8 @@ class _PdfPageViewState extends State<PdfPageView> {
         _lastPage = currentPage;
         _isZooming = false;
         _showControls = true;
+        _isChangingPage = false;
+        _lastPageChangeTime = DateTime.now();
       });
     }
   }
@@ -73,6 +78,35 @@ class _PdfPageViewState extends State<PdfPageView> {
       _isZooming = false;
       _showControls = true;
     });
+  }
+
+  Future<void> _changePage(bool next) async {
+    if (_isChangingPage || _isZooming) return;
+    
+    final now = DateTime.now();
+    if (_lastPageChangeTime != null && 
+        now.difference(_lastPageChangeTime!) < Duration(milliseconds: 300)) {
+      return;
+    }
+
+    setState(() {
+      _isChangingPage = true;
+      _lastPageChangeTime = now;
+    });
+
+    try {
+      if (next) {
+        await widget.documentModel.nextPage();
+      } else {
+        await widget.documentModel.previousPage();
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isChangingPage = false;
+        });
+      }
+    }
   }
 
   @override
@@ -104,13 +138,13 @@ class _PdfPageViewState extends State<PdfPageView> {
     Widget content = Focus(
       autofocus: true,
       onKeyEvent: (FocusNode node, KeyEvent event) {
-        if (event is KeyDownEvent && !_isZooming) {
+        if (event is KeyDownEvent && !_isZooming && !_isChangingPage) {
           if (event.logicalKey == LogicalKeyboardKey.arrowRight &&
               !isAtEndLandscape) {
-            widget.documentModel.nextPage();
+            _changePage(true);
             return KeyEventResult.handled;
           } else if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
-            widget.documentModel.previousPage();
+            _changePage(false);
             return KeyEventResult.handled;
           } else if (event.logicalKey == LogicalKeyboardKey.escape &&
               _isZoomed()) {
@@ -160,9 +194,11 @@ class _PdfPageViewState extends State<PdfPageView> {
               bottom: 0,
               child: Center(
                 child: IconButton(
-                  icon: const Icon(Icons.arrow_left, size: 40),
+                  icon: _isChangingPage 
+                      ? CircularProgressIndicator(color: Colors.blue[900])
+                      : Icon(Icons.arrow_left, size: 40),
                   color: Colors.black.withOpacity(0.5),
-                  onPressed: widget.documentModel.previousPage,
+                  onPressed: _isChangingPage ? null : () => _changePage(false),
                 ),
               ),
             ),
@@ -173,12 +209,15 @@ class _PdfPageViewState extends State<PdfPageView> {
               bottom: 0,
               child: Center(
                 child: IconButton(
-                  icon: const Icon(Icons.arrow_right, size: 40),
+                  icon: _isChangingPage
+                      ? CircularProgressIndicator(color: Colors.blue[900])
+                      : Icon(Icons.arrow_right, size: 40),
                   color: isAtEndLandscape
                       ? Colors.grey
                       : Colors.black.withOpacity(0.5),
-                  onPressed:
-                      isAtEndLandscape ? null : widget.documentModel.nextPage,
+                  onPressed: _isChangingPage || isAtEndLandscape 
+                      ? null 
+                      : () => _changePage(true),
                 ),
               ),
             ),
@@ -324,7 +363,7 @@ class _PdfPageViewState extends State<PdfPageView> {
         minScale: 0.8,
         maxScale: 4.0,
         boundaryMargin: EdgeInsets.all(20),
-        panEnabled: !isEditing, // Deshabilitar pan durante la edición
+        panEnabled: !isEditing,
         onInteractionEnd: (details) {
           if (_transformationController.value == Matrix4.identity()) {
             setState(() {
@@ -339,19 +378,20 @@ class _PdfPageViewState extends State<PdfPageView> {
   }
 
   void _handleTapDown(TapDownDetails details, Size screenSize) {
-    if (widget.isEditing || _isZooming) return;
+    if (widget.isEditing || _isZooming || _isChangingPage) return;
     final double dx = details.localPosition.dx;
     final double w = screenSize.width;
 
     if (dx > w * 0.7) {
-      widget.documentModel.nextPage();
+      _changePage(true);
     } else if (dx < w * 0.3) {
-      widget.documentModel.previousPage();
+      _changePage(false);
     }
   }
 
   void _handleVerticalDragEnd(DragEndDetails details) {
     if (!_isZooming &&
+        !_isChangingPage &&
         details.primaryVelocity != null &&
         details.primaryVelocity! > 400) {
       widget.documentModel.toggleSlider(false);

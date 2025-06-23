@@ -16,7 +16,6 @@ final router = GoRouter(
         final params = state.extra as Map<String, dynamic>;
         return PdfViewer(
           filePath: params['path'] as String,
-          fileId: params['id'] as int?,
         );
       },
     ),
